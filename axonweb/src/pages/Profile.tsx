@@ -19,6 +19,7 @@ import {
   ChevronDown,
   ChevronRight,
   Edit3,
+  FileText,
   Loader2,
   Mail,
   MessageCircle,
@@ -193,7 +194,10 @@ export default function Profile() {
             </ProfileSection>
           </div>
 
-          <AxonMemories />
+          <div className="min-w-0 space-y-5">
+            <AxonMemories />
+            <ReportsHistory />
+          </div>
         </div>
       </div>
 
@@ -748,6 +752,265 @@ function MemoriesModal({
                       </div>
                     )}
                   </div>
+                ))}
+              </div>
+            )}
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+// ===========================================================================
+// HISTÓRICO DE RELATÓRIOS
+// ===========================================================================
+
+// Formata "2026-07-27" + "2026-08-02" como "27 jul – 2 ago".
+function formatReportRange(start: string, end: string) {
+  const fmt = (iso: string) =>
+    new Date(`${iso}T00:00:00`).toLocaleDateString("pt-BR", {
+      day: "numeric",
+      month: "short",
+    });
+  return `${fmt(start)} – ${fmt(end)}`;
+}
+
+function ReportsHistory() {
+  const [reports, setReports] = useState<api.PeriodReport[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [filter, setFilter] = useState<"all" | "weekly" | "monthly">("all");
+
+  useEffect(() => {
+    api
+      .getReportsHistory()
+      .then(setReports)
+      .catch(() => setReports([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const visible =
+    filter === "all" ? reports : reports.filter((r) => r.period_type === filter);
+  const preview = reports.slice(0, 2);
+
+  return (
+    <>
+      <ProfileSection title="Relatórios do Axon">
+        <div className="relative min-w-0 overflow-hidden rounded-[1.95rem] border border-soft bg-surface-elevated p-5 shadow-card backdrop-blur-2xl lg:p-6">
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,var(--accent-soft),transparent_58%)]" />
+
+          <div className="relative">
+            <div className="mb-4 flex items-start gap-3">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-accent-soft bg-accent-soft text-accent">
+                <FileText className="h-5 w-5" />
+              </div>
+
+              <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 items-center justify-between gap-3">
+                  <p className="truncate text-sm font-black text-primary">
+                    Seus resumos de semana e mês
+                  </p>
+
+                  <span className="shrink-0 rounded-full border border-accent-soft bg-accent-soft px-2.5 py-1 text-[0.62rem] font-black text-accent">
+                    {reports.length}
+                  </span>
+                </div>
+
+                <p className="mt-1 text-xs leading-5 text-muted">
+                  Todo relatório que o Axon já escreveu fica guardado aqui para
+                  você comparar períodos.
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              {loading ? (
+                <div className="flex items-center gap-2 rounded-[1.35rem] border border-soft bg-surface-muted px-4 py-5 text-xs text-muted">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />
+                  Carregando relatórios…
+                </div>
+              ) : reports.length === 0 ? (
+                <div className="rounded-[1.35rem] border border-dashed border-soft bg-surface-muted px-4 py-6 text-center">
+                  <p className="text-sm font-black text-primary">
+                    Nenhum relatório ainda
+                  </p>
+                  <p className="mx-auto mt-2 max-w-[18rem] text-xs leading-5 text-muted">
+                    O Axon escreve um resumo ao fim de cada semana e de cada mês.
+                    O primeiro aparece aqui assim que o período fechar.
+                  </p>
+                </div>
+              ) : (
+                preview.map((report) => (
+                  <div
+                    key={report.id}
+                    className="rounded-[1.25rem] border border-soft bg-surface-muted px-4 py-3"
+                  >
+                    <div className="mb-1 flex items-center justify-between gap-2">
+                      <span className="text-[0.62rem] font-black uppercase tracking-[0.12em] text-accent">
+                        {report.period_type === "weekly" ? "Semana" : "Mês"}
+                      </span>
+                      <span className="shrink-0 text-[0.62rem] text-muted">
+                        {formatReportRange(report.period_start, report.period_end)}
+                      </span>
+                    </div>
+                    <p className="line-clamp-2 text-xs leading-5 text-secondary">
+                      {report.narrative}
+                    </p>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {reports.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setIsModalOpen(true)}
+                className="mt-4 inline-flex min-h-11 w-full items-center justify-center rounded-2xl border border-accent-soft bg-accent-soft px-4 text-sm font-black text-accent transition active:scale-[0.98]"
+              >
+                Ver todos os relatórios
+                <ChevronRight className="ml-2 h-4 w-4" />
+              </button>
+            )}
+          </div>
+        </div>
+      </ProfileSection>
+
+      <ReportsHistoryModal
+        isOpen={isModalOpen}
+        reports={visible}
+        filter={filter}
+        onFilterChange={setFilter}
+        onClose={() => setIsModalOpen(false)}
+      />
+    </>
+  );
+}
+
+function ReportsHistoryModal({
+  isOpen,
+  reports,
+  filter,
+  onFilterChange,
+  onClose,
+}: {
+  isOpen: boolean;
+  reports: api.PeriodReport[];
+  filter: "all" | "weekly" | "monthly";
+  onFilterChange: (value: "all" | "weekly" | "monthly") => void;
+  onClose: () => void;
+}) {
+  const filters: { key: "all" | "weekly" | "monthly"; label: string }[] = [
+    { key: "all", label: "Todos" },
+    { key: "weekly", label: "Semanais" },
+    { key: "monthly", label: "Mensais" },
+  ];
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          onClick={onClose}
+          className="fixed inset-0 z-[120] flex items-end justify-center bg-black/45 backdrop-blur-sm sm:items-center"
+        >
+          <motion.div
+            initial={{ y: "100%", opacity: 0.6 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: "100%", opacity: 0.6 }}
+            transition={{ type: "spring", stiffness: 260, damping: 30 }}
+            onClick={(e) => e.stopPropagation()}
+            className="max-h-[86vh] w-full max-w-lg overflow-y-auto rounded-t-[2rem] border border-soft bg-surface-elevated p-5 text-primary shadow-soft sm:rounded-[2rem]"
+          >
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <p className="text-lg font-black text-primary">
+                  Relatórios do Axon
+                </p>
+                <p className="mt-1 text-xs text-muted">
+                  Compare como foram suas semanas e meses.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-soft bg-surface-muted text-muted transition active:scale-[0.96]"
+                aria-label="Fechar"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="mb-4 flex gap-2">
+              {filters.map((f) => (
+                <button
+                  key={f.key}
+                  type="button"
+                  onClick={() => onFilterChange(f.key)}
+                  className={`rounded-full border px-3.5 py-1.5 text-xs font-semibold transition active:scale-[0.96] ${
+                    filter === f.key
+                      ? "border-accent-soft bg-accent-soft text-accent"
+                      : "border-soft bg-surface-muted text-muted"
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+
+            {reports.length === 0 ? (
+              <div className="rounded-[1.35rem] border border-dashed border-soft bg-surface-muted px-4 py-8 text-center">
+                <p className="text-sm text-muted">
+                  Nenhum relatório neste filtro.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {reports.map((report) => (
+                  <article
+                    key={report.id}
+                    className="rounded-[1.5rem] border border-soft bg-surface-muted p-4"
+                  >
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <span className="rounded-full border border-accent-soft bg-accent-soft px-2.5 py-1 text-[0.62rem] font-black text-accent">
+                        {report.period_type === "weekly" ? "Semana" : "Mês"}
+                      </span>
+                      <span className="shrink-0 text-[0.65rem] text-muted">
+                        {formatReportRange(
+                          report.period_start,
+                          report.period_end
+                        )}
+                      </span>
+                    </div>
+
+                    <p className="text-xs leading-6 text-secondary">
+                      {report.narrative}
+                    </p>
+
+                    {/* Números do período: é o que permite comparar entre si. */}
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <span className="rounded-full border border-accent-soft bg-accent-soft px-3 py-1 text-[0.65rem] font-semibold text-accent">
+                        {report.data.avg_completion_rate}% de conclusão média
+                      </span>
+
+                      {report.data.most_productive_day && (
+                        <span className="rounded-full border border-emerald-300/25 bg-emerald-400/10 px-3 py-1 text-[0.65rem] font-semibold text-emerald-700 dark:text-emerald-100">
+                          Melhor dia:{" "}
+                          {report.data.most_productive_day.completion_rate}%
+                        </span>
+                      )}
+
+                      {report.data.key_tasks.defined > 0 && (
+                        <span className="rounded-full border border-amber-300/25 bg-amber-400/10 px-3 py-1 text-[0.65rem] font-semibold text-amber-700 dark:text-amber-100">
+                          {report.data.key_tasks.done}/
+                          {report.data.key_tasks.defined} tarefas-chave
+                        </span>
+                      )}
+                    </div>
+                  </article>
                 ))}
               </div>
             )}

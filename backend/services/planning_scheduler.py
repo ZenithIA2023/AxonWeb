@@ -3,9 +3,10 @@ Scheduler de lembretes de planejamento.
 
 Roda a cada minuto via APScheduler e cria notificações de planejamento
 para usuários cujo horário configurado foi atingido. Também dispara, no
-fuso local de cada usuário: o snapshot/carry-forward de fim de dia (00:10) e
+fuso local de cada usuário: o snapshot/carry-forward de fim de dia (00:10),
 os relatórios narrativos semanal (todo domingo 20h) e mensal (todo último
-dia do mês 20h) — ver report_service.
+dia do mês 20h), e o catch-up diário desses relatórios (09h) — ver
+report_service.
 
 Fluxo:
   1. Busca todos os usuários com cronótipo definido (onboarding completo)
@@ -31,6 +32,11 @@ _SNAPSHOT_FIRE_TIME = "00:10"
 # Horário local de disparo dos relatórios narrativos (semanal e mensal).
 # O período gerado inclui o próprio dia do disparo (ver report_service).
 _REPORT_FIRE_TIME = "20:00"
+
+# Horário local da verificação diária de relatórios faltando (catch-up).
+# Longe das 20h de propósito: se o disparo pontual falhou por indisponibilidade,
+# tentar de novo no mesmo minuto teria a mesma chance de falhar.
+_REPORT_CATCHUP_TIME = "09:00"
 
 # weekday() de domingo (0 = segunda ... 6 = domingo).
 _SUNDAY = 6
@@ -164,6 +170,21 @@ def _process_user(user: dict, now_utc: datetime) -> None:
                 print(f"[planning_scheduler] monthly_report → user={user_id}", flush=True)
             except Exception as e:
                 print(f"[planning_scheduler] monthly_report falhou user={user_id}: {e}", flush=True)
+
+    # Recuperação: o disparo acima exige que o servidor esteja no ar no minuto
+    # exato das 20h. Se estava fora (deploy, queda, ambiente de dev desligado),
+    # aquele relatório nunca seria gerado. Uma vez por dia verificamos se o
+    # período encerrado ficou sem relatório e geramos com atraso.
+    if current_hhmm == _REPORT_CATCHUP_TIME:
+        try:
+            generated = report_service.catch_up(user_id, tz_name)
+            if generated:
+                print(
+                    f"[planning_scheduler] catch_up → user={user_id} {generated}",
+                    flush=True,
+                )
+        except Exception as e:
+            print(f"[planning_scheduler] catch_up falhou user={user_id}: {e}", flush=True)
 
     daily_enabled  = _bool(user.get("daily_planning_enabled"),  True)
     weekly_enabled = _bool(user.get("weekly_planning_enabled"), True)

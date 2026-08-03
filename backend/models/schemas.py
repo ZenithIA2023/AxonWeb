@@ -152,6 +152,7 @@ class TaskResponse(BaseModel):
     created_by: str
     created_at: str
     is_key_task: bool = False
+    carry_count: int = 0
 
 
 # --- Conversations ---
@@ -299,6 +300,7 @@ class DailyLogCreate(BaseModel):
             raise ValueError("rating deve estar entre 1 e 5")
         return v
 
+
     @field_validator("sleep_tags", "mood_tags", "productivity_tags")
     @classmethod
     def _no_maximo_3_tags(cls, v: list[str]) -> list[str]:
@@ -314,6 +316,28 @@ class DailyLogCreate(BaseModel):
         for slug in v:
             if slug not in _VALID_PEAK_PERIODS:
                 raise ValueError(f"período inválido: {slug}")
+        return v
+
+
+class DailyLogDraft(BaseModel):
+    """
+    Rascunho do registro diário. `data` é o formulário parcial como o frontend
+    o mantém — guardado como jsonb opaco de propósito: o rascunho não é dado
+    analisado, e validar campo a campo aqui só impediria de salvar justamente
+    o estado incompleto que queremos preservar.
+    """
+    date: Optional[str] = None  # "YYYY-MM-DD" — hoje ou ontem; None = hoje
+    data: dict = {}
+
+    @field_validator("date")
+    @classmethod
+    def _date_formato_iso(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        try:
+            _date.fromisoformat(v)
+        except ValueError:
+            raise ValueError("date deve estar no formato YYYY-MM-DD")
         return v
 
 

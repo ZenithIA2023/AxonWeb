@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   Focus,
   Moon,
+  NotebookPen,
   RefreshCw,
   Smile,
   Sparkles,
@@ -124,6 +125,9 @@ export default function Insights() {
   // Dados do card de tarefas concluídas.
   const [taskInsights, setTaskInsights] = useState<TaskInsights | null>(null);
   const [loadingTasks, setLoadingTasks] = useState(true);
+  // Dia do gráfico de tarefas em destaque: hover no desktop, clique no celular
+  // (onde não existe hover). Guarda a data (chave estável), não o índice.
+  const [activeTaskDay, setActiveTaskDay] = useState<string | null>(null);
   // Dados usados no gráfico comparativo.
   const [compareTaskInsights, setCompareTaskInsights] =
     useState<TaskInsights | null>(null);
@@ -435,17 +439,32 @@ export default function Insights() {
               ))}
             </div>
           ) : patterns?.status === "collecting" ? (
-            <div className="rounded-[1.5rem] border border-soft bg-surface-muted p-5 text-center">
+            <div className="rounded-[1.5rem] border border-soft bg-surface-muted p-5">
               <Sparkles className="mx-auto mb-3 h-6 w-6 text-accent" />
-              <p className="text-sm leading-6 text-secondary">
-                {patterns.message}
+
+              {/* O que o usuário ganha ao concluir os registros. */}
+              <p className="text-center text-sm font-semibold leading-6 text-primary">
+                Descubra o que afeta a sua produtividade
               </p>
+              <p className="mt-1.5 text-center text-xs leading-5 text-secondary">
+                Com {patterns.days_needed ?? 7} registros o Axon começa a cruzar
+                seu sono, humor e energia com as tarefas que você conclui — e te
+                mostra os padrões que você não percebe sozinho.
+              </p>
+
+              {/* Contagem regressiva vinda do backend (única fonte do "faltam X"). */}
+              {patterns.message && (
+                <p className="mt-2 text-center text-xs leading-5 text-accent">
+                  {patterns.message}
+                </p>
+              )}
 
               <div className="mt-4">
                 <div className="mb-2 flex items-center justify-between text-[0.68rem] text-muted">
                   <span>Progresso</span>
                   <span>
-                    {patterns.data_points ?? 0}/{patterns.days_needed ?? 7} dias
+                    {patterns.data_points ?? 0}/{patterns.days_needed ?? 7}{" "}
+                    registros
                   </span>
                 </div>
                 <div className="h-2 overflow-hidden rounded-full bg-[var(--border-soft)]">
@@ -461,6 +480,35 @@ export default function Insights() {
                     }}
                   />
                 </div>
+              </div>
+
+              {/* O que fazer para avançar: a ação concreta, no próprio card. */}
+              <div className="mt-4 rounded-[1.2rem] border border-soft bg-surface-elevated p-3.5">
+                <p className="text-xs leading-5 text-secondary">
+                  <span className="font-semibold text-primary">
+                    Como avançar:
+                  </span>{" "}
+                  preencha o registro diário no fim do dia — leva menos de um
+                  minuto e cada registro conta como um dia aqui.
+                </p>
+
+                <button
+                  type="button"
+                  onClick={() => setReviewOpen(true)}
+                  className="mt-3 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--accent-strong)] px-4 text-xs font-semibold text-white shadow-card transition active:scale-[0.98]"
+                >
+                  <NotebookPen className="h-3.5 w-3.5" />
+                  {todayLog
+                    ? "Editar registro de hoje"
+                    : "Registrar meu dia agora"}
+                </button>
+
+                {todayLog && (
+                  <p className="mt-2 text-center text-[0.65rem] text-muted">
+                    O dia de hoje já está registrado. Volte amanhã para somar
+                    mais um.
+                  </p>
+                )}
               </div>
             </div>
           ) : patterns?.status === "ready" &&
@@ -693,7 +741,10 @@ export default function Insights() {
             <div className="flex shrink-0 rounded-full border border-soft bg-surface-muted p-1 text-xs">
               <button
                 type="button"
-                onClick={() => setTaskPeriod("week")}
+                onClick={() => {
+                  setTaskPeriod("week");
+                  setActiveTaskDay(null);
+                }}
                 className={`rounded-full px-3 py-1 font-medium transition active:scale-[0.97] ${
                   taskPeriod === "week"
                     ? "bg-accent-soft text-accent"
@@ -704,7 +755,10 @@ export default function Insights() {
               </button>
               <button
                 type="button"
-                onClick={() => setTaskPeriod("month")}
+                onClick={() => {
+                  setTaskPeriod("month");
+                  setActiveTaskDay(null);
+                }}
                 className={`rounded-full px-3 py-1 font-medium transition active:scale-[0.97] ${
                   taskPeriod === "month"
                     ? "bg-accent-soft text-accent"
@@ -727,28 +781,51 @@ export default function Insights() {
                 const completedFill = d.total
                   ? (d.completed / d.total) * 100
                   : 0;
+                const isActive = activeTaskDay === d.date;
                 return (
                   <div
                     key={d.date}
-                    className="flex flex-1 flex-col items-center gap-2"
+                    className="relative flex flex-1 flex-col items-center gap-2"
+                    onMouseEnter={() => setActiveTaskDay(d.date)}
+                    onMouseLeave={() => setActiveTaskDay(null)}
                   >
-                    <div className="flex h-28 w-full items-end justify-center">
+                    {isActive && (
+                      <div className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1 -translate-x-1/2 whitespace-nowrap rounded-xl border border-soft bg-surface-elevated px-2.5 py-1.5 text-center shadow-card">
+                        <p className="text-[0.65rem] font-semibold text-primary">
+                          {d.completed}/{d.total} concluídas
+                        </p>
+                        <p className="text-[0.6rem] text-muted">
+                          {d.completion_rate}% do dia
+                        </p>
+                      </div>
+                    )}
+
+                    <button
+                      type="button"
+                      // No celular não existe hover: o clique alterna o mesmo destaque.
+                      onClick={() =>
+                        setActiveTaskDay(isActive ? null : d.date)
+                      }
+                      className="flex h-28 w-full items-end justify-center"
+                      aria-label={`${d.weekday}: ${d.completed} de ${d.total} tarefas concluídas, ${d.completion_rate}%`}
+                    >
                       {/* Cápsula cinza = total; roxo preenche de baixo = concluídas */}
                       <div
-                        className="relative overflow-hidden rounded-full bg-[var(--border-soft)]"
+                        className={`relative overflow-hidden rounded-full bg-[var(--border-soft)] transition ${
+                          isActive ? "ring-2 ring-accent-soft" : ""
+                        }`}
                         style={{
                           width: taskBarWidth,
                           height: `${totalH}%`,
                           minHeight: taskBarWidth,
                         }}
-                        title={`${d.completed}/${d.total} concluídas`}
                       >
                         <div
                           className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-purple-500 to-fuchsia-400"
                           style={{ height: `${completedFill}%` }}
                         />
                       </div>
-                    </div>
+                    </button>
 
                     <p className="text-[0.6rem] text-muted">
                       {taskPeriod === "week" || i % 5 === 0 ? d.weekday : ""}
@@ -1136,7 +1213,16 @@ export default function Insights() {
         isOpen={reviewOpen}
         onClose={() => setReviewOpen(false)}
         existing={todayLog}
-        onSaved={(log) => setTodayLog(log)}
+        onSaved={(log) => {
+          setTodayLog(log);
+          // O registro recém-salvo pode ter sido o que faltava para destravar
+          // os padrões — sem reconsultar, o card ficaria em "coletando" até um
+          // reload manual da página.
+          api
+            .getPatternInsights()
+            .then(setPatterns)
+            .catch(() => {});
+        }}
       />
     </main>
   );
