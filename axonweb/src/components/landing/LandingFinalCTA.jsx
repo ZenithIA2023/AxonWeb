@@ -24,13 +24,16 @@ const ctaMetrics = [
 
 export default function LandingFinalCTA() {
   return (
-    <section className="relative overflow-hidden bg-[#2d0850] px-4 py-14 text-white sm:px-6 sm:py-18 lg:px-10 lg:py-24 xl:px-14">
+    <section className="relative overflow-hidden rounded-t-[1.75rem] bg-[#2d0850] px-4 py-14 text-white sm:px-6 sm:py-18 lg:rounded-t-[2.4rem] lg:px-10 lg:py-24 xl:px-14">
       <CTABackground />
 
       <div className="relative z-10 mx-auto flex max-w-[1120px] flex-col items-center text-center">
-        <h2 className="landing-section-title-md mx-auto max-w-[42rem] text-[#2d0850] dark:text-white">
+        {/* Branco fixo, sem variante dark: esta seção é roxa nos dois temas. */}
+        <h2 className="landing-section-title-md mx-auto max-w-[42rem] text-white">
           Hoje você conhece o AXON.
-          <span className="block font-black">
+          {/* No mobile a frase flui junto (3 linhas); a partir de `sm` volta a
+              começar numa linha própria. */}
+          <span className="inline font-black sm:block">
             Agora é a vez dele conhecer você.
           </span>
         </h2>
@@ -57,7 +60,7 @@ export default function LandingFinalCTA() {
 
         <Link
           to="/signup"
-          className="mt-8 inline-flex min-h-12 w-full max-w-[21rem] items-center justify-center gap-2 rounded-2xl border border-white/80 bg-transparent px-6 text-sm font-black text-white transition hover:bg-white hover:text-[#2d0850] active:scale-[0.98] sm:mt-10 sm:max-w-[32rem]"
+          className="mt-8 inline-flex min-h-12 w-full max-w-[21rem] items-center justify-center gap-2 rounded-full border border-white/80 bg-[#fbf8ff] px-6 text-sm font-black text-[#2d0850] transition hover:bg-white active:scale-[0.98] sm:mt-10 sm:max-w-[32rem] dark:bg-[#12001f] dark:text-white dark:hover:bg-[#1c0a33]"
         >
           Criar conta
           <ArrowRight className="h-4 w-4" />

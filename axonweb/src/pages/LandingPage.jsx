@@ -10,6 +10,7 @@ import LandingAxonCapabilities from "../components/landing/LandingAxonCapabiliti
 import LandingAxonEvolution from "../components/landing/LandingAxonEvolution";
 import LandingPersonalExperience from "../components/landing/LandingPersonalExperience";
 import LandingFinalCTA from "../components/landing/LandingFinalCTA";
+import LandingThemeSwitch from "../components/landing/LandingThemeSwitch";
 
 import axonHappy from "../assets/axon/axon-happy.png";
 import brainDecoration from "../assets/decorations/brain.svg";
@@ -71,13 +72,16 @@ export default function LandingPage() {
   }, [navigate]);
 
   return (
-    <main className="min-h-screen overflow-hidden bg-[#fbf8ff] text-[#2d0850] dark:bg-[#2d0850] dark:text-white">
+    <main className="min-h-screen overflow-hidden bg-[#fbf8ff] text-[#2d0850] dark:bg-[#12001f] dark:text-white">
       <LandingHero />
+      <LandingIntroBlock />
       <LandingProductivityProblem />
       <LandingAxonCapabilities />
       <LandingAxonEvolution />
       <LandingPersonalExperience />
       <LandingFinalCTA />
+
+      <LandingThemeSwitch />
     </main>
   );
 }
@@ -88,54 +92,117 @@ export default function LandingPage() {
 
 function LandingHero() {
   return (
-    <section className="relative isolate min-h-[100svh] overflow-hidden rounded-b-[1.75rem] bg-[#fbf8ff] px-4 pb-20 pt-7 text-[#2d0850] sm:px-6 lg:flex lg:min-h-screen lg:items-start lg:rounded-b-[2.4rem] lg:px-10 lg:pb-24 lg:pt-8 xl:px-14 dark:bg-[#2d0850] dark:text-white">
-      <LandingPurpleBackground intensity="strong" />
-
-      {/* Acabamento inferior do hero: camadas internas para evitar faixa clara estranha. */}
+    <div className="relative z-10">
+      {/* Camadas empilhadas atrás do hero: cada uma aparecendo
+          um pouco mais abaixo, com opacidade decrescente (100% / 75% / 50%). */}
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 bottom-0 z-0 h-10 rounded-b-[1.75rem] bg-[#7b2cbf]/10 lg:h-12 lg:rounded-b-[2.4rem] dark:bg-[#160028]/45"
+        className="pointer-events-none absolute inset-x-0 bottom-[-12px] h-24 rounded-b-[1.35rem] bg-[#7b2cbf]/75 lg:bottom-[-16px] lg:rounded-b-[1.9rem]"
       />
 
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] h-3 rounded-b-[1.75rem] bg-[#7b2cbf]/35 lg:h-3.5 lg:rounded-b-[2.4rem] dark:bg-[#7b2cbf]/60"
+        className="pointer-events-none absolute inset-x-0 bottom-[-24px] h-24 rounded-b-[1rem] bg-[#7b2cbf]/50 lg:bottom-[-32px] lg:rounded-b-[1.45rem]"
       />
 
-      <div className="relative z-10 mx-auto flex w-full max-w-[1180px] flex-col lg:grid lg:grid-cols-[minmax(0,0.82fr)_minmax(420px,0.82fr)] lg:items-center lg:gap-10 lg:pt-10">
-        <HeroTopBar />
+      {/* Sem `min-h` de viewport: com o bloco de introdução fora do hero, o
+          conteúdo deixou de encher a tela e a altura forçada virava uma faixa
+          vazia embaixo das métricas. Agora a altura é a do conteúdo.
+          O enxugamento do hero vale só do `lg` para cima, que é onde ele vira
+          duas colunas. No celular tudo continua como era: `min-h-[100svh]` para
+          o hero ocupar a tela inteira e `pb-20` embaixo. O `lg:min-h-0` é o que
+          cancela essa altura mínima no desktop, onde ela virava faixa vazia.
+          O padding de baixo no desktop é metade do padrão das seções
+          (`lg:pb-12` contra `lg:py-24`), por escolha de design: com o
+          `lg:items-end` as métricas encostam na base da linha e os 96px cheios
+          deixavam o hero com cara de inacabado.
+          O de cima é menor nos dois, porque ali mora a barra com o logo. */}
+      <section className="relative z-10 isolate min-h-[100svh] overflow-hidden rounded-b-[1.75rem] bg-[#fbf8ff] px-4 pb-20 pt-7 text-[#2d0850] sm:px-6 lg:flex lg:min-h-0 lg:items-start lg:rounded-b-[2.4rem] lg:px-10 lg:pb-12 lg:pt-8 xl:px-14 dark:bg-[#2d0850] dark:text-white">
+        <LandingPurpleBackground intensity="strong" />
 
-        <HeroContent />
+        {/* `lg:items-end`: a coluna de texto é mais baixa que a do mascote, e
+            centralizada ela sobrava ~86px de folga embaixo das métricas antes
+            do fim da linha. Alinhada pela base, as métricas terminam junto com
+            o mascote e o único respiro até a borda do hero passa a ser o
+            `pb-24` — o mesmo padding das outras seções. */}
+        <div className="relative z-10 mx-auto flex w-full max-w-[1180px] flex-col lg:grid lg:grid-cols-[minmax(0,0.82fr)_minmax(420px,0.82fr)] lg:items-end lg:gap-10 lg:pt-10">
+          <HeroTopBar />
 
-        <HeroRobotStage />
+          <HeroContent />
 
-        <HeroIntroBlock />
+          <HeroRobotStage />
+
+          <HeroIntroBlock />
+        </div>
+      </section>
+    </div>
+  );
+}
+
+// ===========================================================================
+// INTRODUÇÃO — "NEM SEMPRE UM DIA CHEIO É UM DIA PRODUTIVO"
+// ===========================================================================
+// Este bloco tem dois lugares na página, um por breakpoint:
+// - até o `lg`, dentro do hero, separado por um filete (HeroIntroBlock);
+// - do `lg` para cima, como seção própria logo abaixo do hero, na mesma
+//   composição do bloco "Sua produtividade não deveria depender apenas de
+//   disciplina" (LandingIntroBlock).
+// Como não dá para mover um nó de uma seção para outra só com CSS, os dois
+// existem no HTML e cada um se esconde no breakpoint do outro. O texto mora
+// nesta constante para não haver duas versões dele para manter.
+
+const introCopy = {
+  title: "Nem sempre um dia cheio é um dia produtivo",
+  lead: "Você já terminou um dia inteiro ocupado, mas ainda sentiu que não avançou no que realmente importava?",
+  body: "Essa sensação não nasce da falta de disciplina. Ela aparece quando sua rotina tenta seguir um modelo genérico, sem considerar seu ritmo, sua energia e a forma como você realmente funciona.",
+};
+
+function LandingIntroBlock() {
+  return (
+    // Só padding no topo: o espaço até o próximo bloco vem do `py` da seção
+    // seguinte. Com padding embaixo aqui também, o intervalo dobraria.
+    // Sem `bg` e sem `z-index` de propósito, para as camadas empilhadas que
+    // saem da base do hero continuarem passando por cima desta faixa.
+    <section className="relative hidden px-4 lg:block lg:px-10 lg:pt-24 xl:px-14">
+      <div className="mx-auto max-w-[1120px]">
+        <div className="mx-auto max-w-[44rem] text-center">
+          <div className="mx-auto mb-5 h-1 w-20 rounded-full bg-[#2d0850] dark:bg-white" />
+
+          <h2 className="landing-section-title-md mx-auto max-w-[42rem] text-[#2d0850] dark:text-white">
+            {introCopy.title}
+          </h2>
+
+          <p className="mx-auto mt-5 max-w-[36rem] text-sm leading-6 text-[#2d0850]/62 sm:text-base sm:leading-7 dark:text-white/62">
+            {introCopy.lead}
+          </p>
+
+          <p className="mx-auto mt-4 max-w-[36rem] text-sm leading-6 text-[#2d0850]/62 sm:text-base sm:leading-7 dark:text-white/62">
+            {introCopy.body}
+          </p>
+        </div>
       </div>
     </section>
   );
 }
 
+// Versão de dentro do hero, só até o `lg`. Sem variantes `lg:` nas classes:
+// no desktop este nó é `display: none` e some da grade do hero.
 function HeroIntroBlock() {
   return (
-    <div className="mx-auto mt-10 w-full max-w-[42rem] text-center lg:col-span-2 lg:-mt-16 lg:max-w-[1180px] lg:text-left">
+    <div className="mx-auto mt-4 w-full max-w-[42rem] text-center lg:hidden">
       <div className="w-full border-t border-[#2d0850]/12 pt-8 dark:border-white/12">
-        <div className="lg:grid lg:grid-cols-[0.82fr_1.18fr] lg:items-start lg:gap-10">
-          <h2 className="mx-auto max-w-[42rem] text-[1.85rem] font-black leading-[0.92] tracking-[-0.055em] text-[#2d0850] sm:text-[2.6rem] lg:mx-0 lg:max-w-[31rem] lg:text-[3rem] dark:text-white">
-            Nem sempre um dia cheio é um dia produtivo
-          </h2>
+        <h2 className="mx-auto max-w-[42rem] text-[1.85rem] font-black leading-[0.92] tracking-[-0.055em] text-[#2d0850] sm:text-[2.6rem] dark:text-white">
+          {introCopy.title}
+        </h2>
 
-          <div className="mx-auto mt-4 max-w-[35rem] lg:mx-0 lg:mt-0 lg:max-w-[36rem]">
-            <p className="text-sm font-medium leading-6 text-[#2d0850]/72 sm:text-base sm:leading-7 dark:text-white/72">
-              Você já terminou um dia inteiro ocupado, mas ainda sentiu que não
-              avançou no que realmente importava?
-            </p>
+        <div className="mx-auto mt-4 max-w-[35rem]">
+          <p className="text-sm font-medium leading-6 text-[#2d0850]/72 sm:text-base sm:leading-7 dark:text-white/72">
+            {introCopy.lead}
+          </p>
 
-            <p className="mt-3 text-sm leading-6 text-[#2d0850]/62 sm:text-base sm:leading-7 dark:text-white/58">
-              Essa sensação não nasce da falta de disciplina. Ela aparece quando
-              sua rotina tenta seguir um modelo genérico, sem considerar seu
-              ritmo, sua energia e a forma como você realmente funciona.
-            </p>
-          </div>
+          <p className="mt-3 text-sm leading-6 text-[#2d0850]/62 sm:text-base sm:leading-7 dark:text-white/58">
+            {introCopy.body}
+          </p>
         </div>
       </div>
     </div>
@@ -169,7 +236,7 @@ function HeroContent() {
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.48, delay: 0.04 }}
-        className="mt-3 max-w-[20rem] text-[2.05rem] font-black leading-[0.9] tracking-[-0.055em] text-[#2d0850] sm:max-w-[30rem] sm:text-[3.25rem] lg:mt-4 lg:max-w-[31rem] lg:text-[3.65rem] xl:text-[4.25rem] dark:text-white"
+        className="mt-3 max-w-[20rem] text-[2.35rem] font-black leading-[0.9] tracking-[-0.055em] text-[#2d0850] sm:max-w-[30rem] sm:text-[3.25rem] lg:mt-4 lg:max-w-[31rem] lg:text-[3.65rem] xl:text-[4.25rem] dark:text-white"
       >
         Seu assistente inteligente de produtividade
       </motion.h1>
@@ -180,7 +247,7 @@ function HeroContent() {
         transition={{ duration: 0.48, delay: 0.1 }}
         className="mt-4 max-w-[20.5rem] sm:max-w-[29rem] lg:max-w-[33rem] lg:border-l lg:border-[#2d0850]/25 lg:pl-4 dark:lg:border-white/35"
       >
-        <p className="text-[0.73rem] font-medium leading-5 text-[#2d0850]/72 sm:text-[0.95rem] sm:leading-7 lg:text-base dark:text-white/72">
+        <p className="text-[0.93rem] font-medium leading-5 text-[#2d0850]/72 sm:text-[0.95rem] sm:leading-7 lg:text-base dark:text-white/72">
           O AXON aprende sua rotina, entende seus padrões de produtividade e
           ajuda você a organizar tarefas, hábitos e compromissos de forma
           personalizada, para que você tenha mais foco, clareza e equilíbrio
@@ -288,11 +355,11 @@ function HeroMetrics() {
           key={metric.label}
           className="px-2 text-center first:pl-0 last:pr-0 lg:text-left"
         >
-          <p className="text-[0.72rem] font-black leading-none text-[#2d0850] sm:text-base dark:text-white">
+          <p className="text-[0.92rem] font-black leading-none text-[#2d0850] sm:text-base dark:text-white">
             {metric.value}
           </p>
 
-          <p className="mx-auto mt-1 max-w-[5.4rem] text-[0.56rem] font-medium leading-3 text-[#2d0850]/62 sm:text-[0.68rem] sm:leading-4 lg:mx-0 dark:text-white/62">
+          <p className="mx-auto mt-1 max-w-[5.4rem] text-[0.76rem] font-medium leading-3 text-[#2d0850]/62 sm:text-[0.68rem] sm:leading-4 lg:mx-0 dark:text-white/62">
             {metric.label}
           </p>
         </div>
@@ -318,58 +385,79 @@ function PlayStoreSoon() {
   );
 }
 
+// Geometria do palco no desktop, toda derivada do asset (1080x1080): a cabeça
+// do mascote começa em 8.8% da altura da imagem e a gola roxa termina em 55.6%.
+//
+// O palco é mais baixo que o mascote de propósito. Ele define só o quanto a
+// coluna ocupa na linha do grid; o mascote transborda por baixo e é a própria
+// seção (que tem `overflow-hidden` e `rounded-b`) que corta, dando o efeito de
+// ele estar saindo de trás dos quadrados empilhados.
+// A conta que amarra os dois: palco = 78% da altura do mascote - 40px (os 48px
+// do `pb-12` da seção menos os 8px do `top-2` do mascote). Mexeu num, refaça a
+// conta do outro, senão o corte sai do lugar — a base do corpo está em 89% da
+// imagem, então acima disso revela o robô inteiro e muito abaixo corta o dorso.
+//
+// O `max-w-none` na imagem é obrigatório: ela é quadrada (1080x1080), então a
+// 640px de altura tem 640px de largura, mais que a coluna — sem ele o
+// `max-width: 100%` do preflight espremia a imagem e a altura pedida nunca
+// acontecia. O transbordo é invisível: o robô ocupa só 22%–80% da largura da
+// imagem, ou seja 373px de pixels visíveis dentro de uma coluna de 452px+.
+// Como as colunas são `items-end`, isso vale mesmo se a coluna de texto crescer
+// e esticar a linha: o corte é ancorado na base, não no topo.
 function HeroRobotStage() {
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.96, y: 20 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
       transition={{ duration: 0.65, delay: 0.22, ease: "easeOut" }}
-      className="pointer-events-none relative mx-auto mt-8 h-[315px] w-full max-w-[23rem] sm:h-[440px] sm:max-w-[30rem] lg:mt-0 lg:h-[640px] lg:max-w-none"
+      className="pointer-events-none relative mx-auto mt-8 h-[350px] w-full max-w-[23rem] sm:h-[440px] sm:max-w-[30rem] lg:mt-0 lg:h-[459px] lg:max-w-none xl:h-[506px]"
     >
-      <div className="absolute left-1/2 top-[58%] h-[15rem] w-[15rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#7b2cbf]/28 blur-[80px] sm:h-[24rem] sm:w-[24rem] lg:top-[53%] lg:h-[32rem] lg:w-[32rem] lg:blur-[110px] dark:bg-[#7b2cbf]/60" />
+      <div className="absolute left-1/2 top-[42%] h-[22.5rem] w-[22.5rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#7b2cbf]/28 blur-[80px] sm:top-[58%] sm:h-[24rem] sm:w-[24rem] lg:top-[46%] lg:h-[25rem] lg:w-[25rem] lg:blur-[110px] xl:h-[27rem] xl:w-[27rem] dark:bg-[#7b2cbf]/60" />
 
-      <div className="absolute left-1/2 top-[61%] h-[13.5rem] w-[13.5rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#7b2cbf]/18 sm:h-[22rem] sm:w-[22rem] lg:top-[55%] lg:h-[27rem] lg:w-[27rem] dark:bg-[#7b2cbf]/55" />
+      {/* Círculo e contorno cobrem da cabeça até a gola, e só. Os 20rem são a
+          distância entre 8.8% e 55.6% da imagem na altura de mascote do `lg`. */}
+      <div className="absolute left-1/2 top-[47%] h-[18rem] w-[18rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#7b2cbf]/18 sm:top-[61%] sm:h-[22rem] sm:w-[22rem] lg:top-[40%] lg:h-[25rem] lg:w-[25rem] xl:h-[22rem] xl:w-[22rem] dark:bg-[#7b2cbf]/55" />
 
-      <div className="absolute left-1/2 top-[61%] h-[13.5rem] w-[13.5rem] -translate-x-1/2 -translate-y-1/2 rounded-full border border-[#2d0850]/10 sm:h-[22rem] sm:w-[22rem] lg:top-[55%] lg:h-[27rem] lg:w-[27rem] dark:border-white/10" />
+      <div className="absolute left-1/2 top-[47%] h-[18rem] w-[18rem] -translate-x-1/2 -translate-y-1/2 rounded-full border border-[#2d0850]/10 sm:top-[61%] sm:h-[22rem] sm:w-[22rem] lg:top-[40%] lg:h-[25rem] lg:w-[25rem] xl:h-[22rem] xl:w-[22rem] dark:border-white/10" />
 
-      <span className="absolute left-1/2 top-[16%] h-3 w-3 -translate-x-1/2 rounded-full bg-[#7b2cbf] sm:top-[13%] sm:h-4 sm:w-4 lg:top-[16%] dark:bg-white" />
-      <span className="absolute bottom-[17%] right-[21%] h-3 w-3 rounded-full bg-[#7b2cbf] sm:h-4 sm:w-4 lg:bottom-[23%] lg:right-[20%] dark:bg-white" />
+      <span className="absolute left-1/2 top-[4%] h-3 w-3 -translate-x-1/2 rounded-full bg-[#7b2cbf] sm:top-[13%] sm:h-4 sm:w-4 lg:top-[-4%] dark:bg-white" />
+      <span className="absolute bottom-[47%] right-[17%] h-3 w-3 rounded-full bg-[#7b2cbf] sm:bottom-[17%] sm:right-[21%] sm:h-4 sm:w-4 lg:bottom-[46%] lg:right-[15%] dark:bg-white" />
 
       <img
         src={brainDecoration}
         alt=""
         aria-hidden="true"
-        className="absolute left-[17%] top-[23%] h-7 w-7 -rotate-12 opacity-70 invert sm:left-[15%] sm:top-[22%] sm:h-10 sm:w-10 lg:left-[14%] lg:top-[28%] lg:h-12 lg:w-12 dark:invert-0 dark:opacity-80"
+        className="absolute left-[12%] top-[13%] h-12 w-12 -rotate-12 opacity-70 invert sm:left-[15%] sm:top-[22%] sm:h-10 sm:w-10 lg:left-[14%] lg:top-[08%] lg:h-12 lg:w-12 dark:invert-0 dark:opacity-80"
       />
 
       <img
         src={starDecoration}
         alt=""
         aria-hidden="true"
-        className="absolute right-[16%] top-[22%] h-8 w-8 rotate-12 opacity-80 invert sm:right-[15%] sm:top-[20%] sm:h-12 sm:w-12 lg:right-[15%] lg:top-[25%] lg:h-14 lg:w-14 dark:invert-0 dark:opacity-90"
+        className="absolute right-[11%] top-[07%] h-16 w-16 rotate-4 opacity-80 invert sm:right-[15%] sm:top-[20%] sm:h-12 sm:w-12 lg:right-[12%] lg:top-[05%] lg:h-14 lg:w-14 dark:invert-0 dark:opacity-90"
       />
 
       <img
         src={starDecoration}
         alt=""
         aria-hidden="true"
-        className="absolute bottom-[26%] left-[12%] h-7 w-7 -rotate-12 opacity-65 invert sm:bottom-[24%] sm:left-[12%] sm:h-10 sm:w-10 lg:bottom-[27%] lg:left-[10%] lg:h-12 lg:w-12 dark:invert-0 dark:opacity-75"
+        className="absolute bottom-[52%] left-[06%] h-8 w-8 -rotate-38 opacity-65 invert sm:bottom-[24%] sm:left-[12%] sm:h-10 sm:w-10 lg:bottom-[53%] lg:left-[8%] lg:h-12 lg:w-12 dark:invert-0 dark:opacity-75"
       />
 
       <img
         src={brainDecoration}
         alt=""
         aria-hidden="true"
-        className="absolute bottom-[31%] right-[7%] h-6 w-6 rotate-12 opacity-35 invert sm:right-[8%] sm:h-9 sm:w-9 lg:bottom-[32%] lg:right-[9%] lg:h-10 lg:w-10 dark:invert-0 dark:opacity-40"
+        className="absolute bottom-[58%] right-[07%] h-10 w-10 rotate-38 opacity-35 invert sm:bottom-[31%] sm:right-[8%] sm:h-9 sm:w-9 lg:bottom-[67%] lg:right-[7%] lg:h-10 lg:w-10 dark:invert-0 dark:opacity-40"
       />
 
-      <div className="relative z-10 top-12 mx-auto mb-[-1.6rem] w-fit sm:top-14 lg:top-2">
+      <div className="relative z-10 top-[-27px] lg:translate-x-[-70px] mb-[-1.6rem] w-fit sm:top-14 lg:top-[-35px]">
         <motion.img
           src={axonHappy}
           alt="Mascote Axon feliz"
           animate={{ y: [-5, 5, -5] }}
           transition={{ duration: 5.5, repeat: Infinity, ease: "easeInOut" }}
-          className="block h-[280px] w-auto object-contain drop-shadow-[0_34px_70px_rgba(0,0,0,0.38)] sm:h-[410px] lg:h-[560px] xl:h-[610px]"
+          className="block h-[442px] w-auto object-contain drop-shadow-[0_34px_70px_rgba(0,0,0,0.38)] sm:h-[410px] lg:h-[640px] lg:max-w-none xl:h-[700px]"
         />
       </div>
     </motion.div>
@@ -386,7 +474,7 @@ function HeroButton({ children, to, variant = "primary" }) {
   return (
     <Link
       to={to}
-      className={`relative z-30 inline-flex min-h-10 items-center justify-center gap-2 rounded-2xl px-5 text-[0.72rem] font-black transition active:scale-[0.98] sm:min-h-11 sm:text-sm ${
+      className={`relative z-30 inline-flex min-h-10 items-center justify-center gap-2 rounded-full px-5 text-[0.72rem] font-black transition active:scale-[0.98] sm:min-h-11 sm:text-sm ${
         isPrimary
           ? "bg-[#8d31dd] text-white shadow-[0_14px_30px_rgba(0,0,0,0.2)] hover:bg-[#9b3bee]"
           : "border border-[#2d0850]/45 bg-transparent text-[#2d0850] hover:bg-[#2d0850]/5 dark:border-white/80 dark:text-white dark:hover:bg-white/10"
@@ -403,7 +491,7 @@ function HeroTopButton({ children, to, variant = "outline" }) {
   return (
     <Link
       to={to}
-      className={`relative z-30 inline-flex min-h-9 items-center justify-center rounded-2xl px-5 text-sm font-black transition active:scale-[0.98] ${
+      className={`relative z-30 inline-flex min-h-9 items-center justify-center rounded-full px-5 text-sm font-black transition active:scale-[0.98] ${
         isFilled
           ? "bg-[#8d31dd] text-white shadow-[0_14px_30px_rgba(0,0,0,0.2)] hover:bg-[#9b3bee]"
           : "border border-[#2d0850]/45 bg-transparent text-[#2d0850] hover:bg-[#2d0850]/5 dark:border-white/80 dark:text-white dark:hover:bg-white/10"

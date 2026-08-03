@@ -514,28 +514,22 @@ export default function Questionnaire() {
         <Header />
 
         <section className="flex flex-1 flex-col justify-center py-6">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={currentQuestion.id}
-              initial={{ opacity: 0, x: 24 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -24 }}
-              transition={{ duration: 0.28, ease: "easeOut" }}
-            >
-              <QuestionCard
-                question={currentQuestion}
-                currentIndex={currentIndex}
-                total={questions.length}
-                progress={progress}
-                selectedAnswer={selectedAnswer}
-                submitted={submitted}
-                isLastQuestion={isLastQuestion}
-                onSelectAnswer={selectAnswer}
-                onNext={goNext}
-                onBack={goBack}
-              />
-            </motion.div>
-          </AnimatePresence>
+          {/*
+            A transição fica dentro do card (ver QuestionCard), como na tela de
+            introdução: a moldura e a pilha de trás continuam fixas e só o
+            conteúdo da pergunta desliza.
+          */}
+          <QuestionCard
+            question={currentQuestion}
+            currentIndex={currentIndex}
+            progress={progress}
+            selectedAnswer={selectedAnswer}
+            submitted={submitted}
+            isLastQuestion={isLastQuestion}
+            onSelectAnswer={selectAnswer}
+            onNext={goNext}
+            onBack={goBack}
+          />
         </section>
       </div>
     </main>
@@ -564,10 +558,19 @@ function Header() {
   );
 }
 
+// Transição do conteúdo da pergunta — mesmos valores usados na tela de
+// introdução. Os dois blocos animados (cabeçalho e corpo) compartilham a
+// configuração para entrarem e saírem em sincronia.
+const QUESTION_CONTENT_MOTION = {
+  initial: { opacity: 0, x: 24 },
+  animate: { opacity: 1, x: 0 },
+  exit: { opacity: 0, x: -24 },
+  transition: { duration: 0.28, ease: "easeOut" },
+} as const;
+
 function QuestionCard({
   question,
   currentIndex,
-  total,
   progress,
   selectedAnswer,
   submitted,
@@ -578,7 +581,6 @@ function QuestionCard({
 }: {
   question: Question;
   currentIndex: number;
-  total: number;
   progress: number;
   selectedAnswer?: string;
   submitted: boolean;
@@ -594,53 +596,65 @@ function QuestionCard({
       <DecorativeStack />
 
       <div className="relative z-10 overflow-hidden rounded-[2.2rem] border border-white/90 bg-white px-5 pb-5 pt-6 text-[#4c1d95] shadow-[0_28px_90px_rgba(0,0,0,0.24)] dark:border-white/10 dark:bg-[#11101a]/94 dark:text-white dark:shadow-[0_28px_90px_rgba(0,0,0,0.48)]">
-        <div className="mb-4 flex items-center justify-between gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-xl border border-[#7b2cbf]/20 bg-[#7b2cbf]/10 text-[#7b2cbf] dark:border-white/10 dark:bg-[#191722] dark:text-white/78">
-            <Icon className="h-4 w-4" />
-          </div>
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={`${question.id}-cabecalho`}
+            {...QUESTION_CONTENT_MOTION}
+            className="mb-4 flex items-center justify-between gap-3"
+          >
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl border border-[#7b2cbf]/20 bg-[#7b2cbf]/10 text-[#7b2cbf] dark:border-white/10 dark:bg-[#191722] dark:text-white/78">
+              <Icon className="h-4 w-4" />
+            </div>
 
-          <span className="rounded-xl border border-[#7b2cbf]/20 bg-[#fbf8ff] px-3 py-1 text-[0.62rem] font-semibold text-[#6d28d9]/72 dark:border-white/10 dark:bg-[#191722] dark:text-white/62">
-            {question.category}
-          </span>
-        </div>
+            <span className="rounded-xl border border-[#7b2cbf]/20 bg-[#fbf8ff] px-3 py-1 text-[0.62rem] font-semibold text-[#6d28d9]/72 dark:border-white/10 dark:bg-[#191722] dark:text-white/62">
+              {question.category}
+            </span>
+          </motion.div>
+        </AnimatePresence>
 
+        {/*
+          A barra e a porcentagem ficam fora da transição — são o indicador de
+          progresso da sequência inteira, como os dots da introdução. Assim a
+          barra cresce continuamente de uma pergunta para a outra em vez de
+          reiniciar do zero a cada troca.
+        */}
         <ProgressBar progress={progress} />
 
-        <div className="mt-2 flex items-center justify-between">
-          <p className="text-[0.7rem] font-black text-[#4c1d95] dark:text-white/86">
-            {currentIndex + 1} de {total}
-          </p>
-
+        <div className="mt-2 flex items-center justify-end">
           <p className="text-[0.7rem] font-black text-[#4c1d95] dark:text-white/86">
             {Math.round(progress)}%
           </p>
         </div>
 
-        <h1 className="mx-auto mt-5 max-w-[17.5rem] text-center text-[1.25rem] font-black leading-[1.02] tracking-[-0.04em] text-[#4c1d95] dark:text-white">
-          {question.title}
-        </h1>
+        <AnimatePresence mode="wait">
+          <motion.div key={question.id} {...QUESTION_CONTENT_MOTION}>
+            <h1 className="mx-auto mt-5 max-w-[17.5rem] text-center text-[1.25rem] font-black leading-[1.02] tracking-[-0.04em] text-[#4c1d95] dark:text-white">
+              {question.title}
+            </h1>
 
-        <div className="mt-6 space-y-2">
-          {question.options.map((option) => (
-            <AnswerOption
-              key={option.id}
-              questionId={question.id}
-              option={option}
-              selected={selectedAnswer === option.id}
-              disabled={submitted}
-              onSelect={onSelectAnswer}
+            <div className="mt-6 space-y-2">
+              {question.options.map((option) => (
+                <AnswerOption
+                  key={option.id}
+                  questionId={question.id}
+                  option={option}
+                  selected={selectedAnswer === option.id}
+                  disabled={submitted}
+                  onSelect={onSelectAnswer}
+                />
+              ))}
+            </div>
+
+            <QuestionActions
+              currentIndex={currentIndex}
+              isLastQuestion={isLastQuestion}
+              selectedAnswer={selectedAnswer}
+              submitted={submitted}
+              onNext={onNext}
+              onBack={onBack}
             />
-          ))}
-        </div>
-
-        <QuestionActions
-          currentIndex={currentIndex}
-          isLastQuestion={isLastQuestion}
-          selectedAnswer={selectedAnswer}
-          submitted={submitted}
-          onNext={onNext}
-          onBack={onBack}
-        />
+          </motion.div>
+        </AnimatePresence>
       </div>
     </div>
   );
@@ -756,11 +770,28 @@ function QuestionActions({
 // ELEMENTOS VISUAIS
 // ===========================================================================
 
+// Camadas que representam as próximas perguntas da sequência. Todas giram para
+// o mesmo lado, com rotação decrescente da mais distante para a mais próxima,
+// para dar a leitura de uma pilha enfileirada e não de cartas espalhadas.
+// A superfície acompanha a do card da frente (branco no claro, #11101a no
+// escuro), apenas mais recuada, para que a pilha tenha volume.
+// Ordem do array = ordem de pintura: do card mais distante para o mais próximo.
+// Mantido em sincronia com o mesmo bloco de QuestionnaireIntro.jsx.
+const UPCOMING_CARD_LAYERS = [
+  "translate-x-[0.00rem] translate-y-[0.10rem] rotate-[5deg] scale-[1.02] border-white/42 bg-white/30 shadow-[0_16px_44px_rgba(45,8,80,0.16)] dark:border-white/10 dark:bg-[#11101a]/45 dark:shadow-[0_16px_44px_rgba(0,0,0,0.34)]",
+  "translate-x-[0.00rem] translate-y-[0.08rem] rotate-[3deg] scale-[1.01] border-white/62 bg-white/55 shadow-[0_18px_48px_rgba(45,8,80,0.18)] dark:border-white/14 dark:bg-[#11101a]/50 dark:shadow-[0_18px_48px_rgba(0,0,0,0.38)]",
+];
+
 function DecorativeStack() {
   return (
     <>
-      <div className="pointer-events-none absolute inset-0 -z-10 translate-x-4 translate-y-3 rotate-[6deg] rounded-[2.2rem] border border-white/18 bg-white/[0.045] dark:border-white/10" />
-      <div className="pointer-events-none absolute inset-0 -z-10 -translate-x-3 translate-y-5 rotate-[-8deg] rounded-[2.2rem] border border-white/16 bg-white/[0.035] dark:border-white/8" />
+      {UPCOMING_CARD_LAYERS.map((layerClassName, index) => (
+        <div
+          key={`upcoming-card-${index}`}
+          aria-hidden="true"
+          className={`pointer-events-none absolute inset-0 -z-10 rounded-[2.2rem] border ${layerClassName}`}
+        />
+      ))}
     </>
   );
 }

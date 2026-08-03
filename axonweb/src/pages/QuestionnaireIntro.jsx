@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Moon, Sun } from "lucide-react";
 
+import { useTheme } from "../components/theme/ThemeProvider";
 import axonHappyWave from "../assets/axon/axon-happy-wave.png";
 
 // ===========================================================================
@@ -99,7 +100,7 @@ export default function QuestionnaireIntro() {
 
 function Header({ onSkip }) {
   return (
-    <header className="flex items-center justify-between">
+    <header className="flex items-center justify-between gap-3">
       <Link to="/" className="flex items-center gap-2">
         <img
           src="/axon-logo-inverted.svg"
@@ -112,14 +113,45 @@ function Header({ onSkip }) {
         </span>
       </Link>
 
-      <button
-        type="button"
-        onClick={onSkip}
-        className="min-h-9 rounded-2xl border border-white/20 bg-white/10 px-4 text-xs font-semibold text-white/78 backdrop-blur-2xl transition hover:bg-white/16 hover:text-white active:scale-[0.98]"
-      >
-        Pular Apresentação
-      </button>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={onSkip}
+          className="min-h-9 rounded-2xl border border-white/20 bg-white/10 px-4 text-xs font-semibold text-white/78 backdrop-blur-2xl transition hover:bg-white/16 hover:text-white active:scale-[0.98]"
+        >
+          Pular Apresentação
+        </button>
+
+        <ThemeSwitchButton />
+      </div>
     </header>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ALTERNADOR DE TEMA — APOIO DE DESIGN (PROVISÓRIO)
+// ---------------------------------------------------------------------------
+// Botão só para comparar o visual claro e o escuro durante os ajustes desta
+// tela. Usa o mesmo ThemeProvider do resto do app, então a escolha fica salva
+// em localStorage e vale para as outras telas. Pode ser removido quando o
+// design estiver fechado (mesmo papel do LandingThemeSwitch na landing).
+
+function ThemeSwitchButton() {
+  const { resolvedTheme, toggleTheme } = useTheme();
+
+  const isDark = resolvedTheme === "dark";
+  const label = isDark ? "Ver tema claro" : "Ver tema escuro";
+
+  return (
+    <button
+      type="button"
+      onClick={toggleTheme}
+      aria-label={label}
+      title={label}
+      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-white/20 bg-white/10 text-white/78 backdrop-blur-2xl transition hover:bg-white/16 hover:text-white active:scale-[0.98]"
+    >
+      {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+    </button>
   );
 }
 
@@ -133,7 +165,7 @@ function SlideCard({
   onBack,
 }) {
   return (
-    <div className="relative mx-auto w-full max-w-[350px]">
+    <div className="relative mx-auto w-full max-w-[330px]">
       <DecorativeStack />
 
       <div className="relative z-10 overflow-hidden rounded-[2.2rem] border border-white/90 bg-white px-5 pb-5 pt-7 text-center text-[#4c1d95] shadow-[0_28px_90px_rgba(0,0,0,0.24)] dark:border-white/10 dark:bg-[#11101a]/94 dark:text-white dark:shadow-[0_28px_90px_rgba(0,0,0,0.48)]">
@@ -143,6 +175,13 @@ function SlideCard({
           onSelect={onSelectSlide}
         />
 
+        {/*
+          Altura fixa para que todos os slides tenham o mesmo card, tomando
+          "Cada pessoa funciona de um jeito." como referência. Como os textos
+          variam de tamanho, a área do mascote é flexível (min-h-0 + max-h-full)
+          e absorve a diferença: o mascote encolhe um pouco nos slides de texto
+          mais longo em vez de esticar o card.
+        */}
         <AnimatePresence mode="wait">
           <motion.div
             key={currentSlide}
@@ -150,7 +189,7 @@ function SlideCard({
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -24 }}
             transition={{ duration: 0.28, ease: "easeOut" }}
-            className="flex min-h-[470px] flex-col"
+            className="flex h-[490px] flex-col"
           >
             <div>
               <h1 className="mx-auto max-w-[16.8rem] text-[1.38rem] font-black leading-[0.98] tracking-[-0.045em] text-[#4c1d95] dark:text-white">
@@ -168,7 +207,7 @@ function SlideCard({
               </div>
             </div>
 
-            <div className="relative mx-auto mt-5 flex flex-1 items-center justify-center">
+            <div className="relative mx-auto mt-5 flex min-h-0 flex-1 items-center justify-center">
               <div className="absolute left-1/2 top-1/2 h-[13rem] w-[13rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#7b2cbf]/10 blur-2xl dark:bg-[#7b2cbf]/20" />
 
               <motion.img
@@ -180,7 +219,7 @@ function SlideCard({
                   repeat: Infinity,
                   ease: "easeInOut",
                 }}
-                className="relative z-10 h-[245px] w-auto object-contain drop-shadow-[0_28px_52px_rgba(45,8,80,0.18)] dark:drop-shadow-[0_34px_58px_rgba(0,0,0,0.34)]"
+                className="relative z-10 h-[245px] max-h-full w-auto object-contain drop-shadow-[0_28px_52px_rgba(45,8,80,0.18)] dark:drop-shadow-[0_34px_58px_rgba(0,0,0,0.34)]"
               />
             </div>
 
@@ -258,11 +297,29 @@ function FooterActions({
 // ELEMENTOS VISUAIS
 // ===========================================================================
 
+// Camadas que representam os próximos cards da sequência. Todas seguem a
+// mesma direção — deslocam para a direita e para baixo com rotação crescente —
+// para dar a leitura de uma pilha enfileirada, e não de cartas espalhadas.
+// A superfície acompanha a do card da frente (branco no claro, #11101a no
+// escuro), apenas mais recuada, para que a pilha tenha volume.
+// Ordem do array = ordem de pintura: do card mais distante para o mais próximo.
+// O `scale` decrescente mantém a pilha dentro do frame de 430px da página
+// (o `main` tem overflow-hidden), mesmo com o deslocamento e a rotação.
+const UPCOMING_CARD_LAYERS = [
+  "translate-x-[0.00rem] translate-y-[0.10rem] rotate-[5deg] scale-[1.02] border-white/42 bg-white/30 shadow-[0_16px_44px_rgba(45,8,80,0.16)] dark:border-white/10 dark:bg-[#11101a]/45 dark:shadow-[0_16px_44px_rgba(0,0,0,0.34)]",
+  "translate-x-[0.00rem] translate-y-[0.08rem] rotate-[3deg] scale-[1.01] border-white/62 bg-white/55 shadow-[0_18px_48px_rgba(45,8,80,0.18)] dark:border-white/14 dark:bg-[#11101a]/50 dark:shadow-[0_18px_48px_rgba(0,0,0,0.38)]",
+];
+
 function DecorativeStack() {
   return (
     <>
-      <div className="pointer-events-none absolute inset-0 -z-10 translate-x-4 translate-y-3 rotate-[6deg] rounded-[2.2rem] border border-white/18 bg-white/[0.045] dark:border-white/10" />
-      <div className="pointer-events-none absolute inset-0 -z-10 -translate-x-3 translate-y-5 rotate-[-8deg] rounded-[2.2rem] border border-white/16 bg-white/[0.035] dark:border-white/8" />
+      {UPCOMING_CARD_LAYERS.map((layerClassName, index) => (
+        <div
+          key={`upcoming-card-${index}`}
+          aria-hidden="true"
+          className={`pointer-events-none absolute inset-0 -z-10 rounded-[2.2rem] border ${layerClassName}`}
+        />
+      ))}
     </>
   );
 }

@@ -154,7 +154,7 @@ function AnalysisCard({
 
         <div className="relative flex h-full flex-col">
           <div className="mx-auto mb-7 inline-flex rounded-full border border-[#7b2cbf]/16 bg-[#fbf8ff] px-3 py-1 text-[0.62rem] font-semibold text-[#6d28d9]/68 dark:border-white/10 dark:bg-[#191722] dark:text-white/58">
-            Processando respostas
+            {isFinished ? "Cronotipo identificado" : "Processando respostas"}
           </div>
 
           <AnalysisVisual
@@ -186,7 +186,7 @@ function AnalysisCard({
           <div className="mt-4">
             <div className="mb-2 flex items-center justify-between">
               <p className="text-[0.62rem] font-semibold text-[#6d28d9]/58 dark:text-white/52">
-                Análise em andamento
+                {isFinished ? "Análise finalizada" : "Análise em andamento"}
               </p>
 
               <span className="rounded-full border border-[#7b2cbf]/16 bg-[#fbf8ff] px-2 py-0.5 text-[0.58rem] font-black text-[#6d28d9]/72 dark:border-white/10 dark:bg-[#191722] dark:text-white/58">
@@ -209,7 +209,7 @@ function AnalysisCard({
             disabled={!isFinished}
             className="mt-6 inline-flex min-h-10 w-full items-center justify-center rounded-2xl bg-[#7b2cbf] px-6 text-sm font-semibold text-white shadow-[0_18px_42px_rgba(123,44,191,0.22)] transition hover:bg-[#8d31dd] active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-[#7b2cbf]/28 disabled:text-white/48 disabled:shadow-none dark:bg-[#a855f7] dark:hover:bg-[#b968ff] dark:disabled:bg-white/10"
           >
-            {isFinished ? "Ver resultado agora" : "Ver resultado em breve"}
+            {isFinished ? "Ver resultado agora" : "Calculando resultados"}
             <ArrowRight className="ml-2 h-4 w-4" />
           </button>
         </div>

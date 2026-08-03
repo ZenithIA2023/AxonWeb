@@ -54,7 +54,7 @@ export default function LandingProductivityProblem() {
         <div className="mx-auto mt-9 flex max-w-[22rem] justify-center">
             <Link
                 to="/signup"
-                className="relative z-10 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-2xl bg-[#2d0850] px-6 text-sm font-black text-white shadow-[0_18px_42px_rgba(45,8,80,0.18)] transition hover:bg-[#3d0b6d] active:scale-[0.98] sm:w-auto sm:min-w-[14rem] dark:bg-[#7b2cbf] dark:text-white dark:hover:bg-[#8d31dd]"
+                className="relative z-10 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-[#2d0850] px-6 text-sm font-black text-white shadow-[0_18px_42px_rgba(45,8,80,0.18)] transition hover:bg-[#3d0b6d] active:scale-[0.98] sm:w-auto sm:min-w-[14rem] dark:bg-[#7b2cbf] dark:text-white dark:hover:bg-[#8d31dd]"
                 style={{ color: "#ffffff" }}
                 >
                 <span className="relative z-10 text-white" style={{ color: "#ffffff" }}>
@@ -78,21 +78,16 @@ export default function LandingProductivityProblem() {
 
 function ProblemBlock() {
   return (
-    <div className="mx-auto mt-14 max-w-[44rem] text-center sm:mt-18">
-      <div className="mx-auto mb-7 h-1 w-20 rounded-full bg-[#2d0850] dark:bg-white" />
-
+    <div className="mx-auto max-w-[44rem] text-center">
       <h2 className="landing-section-title-md mx-auto max-w-[42rem] text-[#2d0850] dark:text-white">
         Sua produtividade não deveria depender apenas de disciplina.
       </h2>
 
       <p className="mx-auto mt-5 max-w-[36rem] text-sm leading-6 text-[#2d0850]/62 sm:text-base sm:leading-7 dark:text-white/62">
         Talvez você já tenha tentado resolver isso com listas, metas, novos
-        aplicativos ou rotinas cada vez mais rígidas.
-      </p>
-
-      <p className="mx-auto mt-3 max-w-[36rem] text-sm leading-6 text-[#2d0850]/62 sm:text-base sm:leading-7 dark:text-white/62">
-        O problema é que a maioria das ferramentas não considera seu ritmo, sua
-        energia e o contexto real do seu dia.
+        aplicativos ou rotinas cada vez mais rígidas. O problema é que a
+        maioria das ferramentas não considera seu ritmo, sua energia e o
+        contexto real do seu dia.
       </p>
     </div>
   );
@@ -125,7 +120,7 @@ function AdaptiveBlock() {
 function ProblemCardsRail() {
   return (
     <div className="relative mt-10 sm:mt-12">
-      <div className="pointer-events-none absolute left-1/2 top-1/2 hidden h-[17rem] w-[17rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#7b2cbf]/11 md:block dark:bg-[#7b2cbf]/20" />
+      <div className="pointer-events-none absolute left-1/2 top-1/2 h-[16rem] w-[16rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#7b2cbf]/11 sm:h-[17rem] sm:w-[17rem] dark:bg-[#7b2cbf]/20" />
 
       <div className="relative -mx-4 flex snap-x gap-4 overflow-x-auto px-4 pb-5 pt-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:mx-auto md:grid md:max-w-[760px] md:grid-cols-2 md:overflow-visible md:px-0 md:pb-0 lg:max-w-[840px]">
         {problemCards.map((card) => (
@@ -140,7 +135,7 @@ function ProblemCard({ card }) {
   const Icon = card.icon;
 
   return (
-    <article className="relative min-h-[13rem] min-w-[78%] snap-center overflow-hidden rounded-[1.45rem] border border-[#2d0850]/10 bg-white p-5 text-left shadow-[0_18px_42px_rgba(45,8,80,0.12)] sm:min-w-[20rem] md:min-w-0 dark:border-white/10 dark:bg-white/[0.06] dark:shadow-[0_18px_42px_rgba(0,0,0,0.22)]">
+    <article className="relative min-h-[13rem] min-w-[66%] snap-center overflow-hidden rounded-[1.45rem] border border-[#2d0850]/10 bg-white p-5 text-left sm:min-w-[17rem] md:min-w-0 dark:border-white/10 dark:bg-[#1c0a33]">
       <CornerAccents />
 
       <div className="relative z-10 flex h-full flex-col justify-center">
