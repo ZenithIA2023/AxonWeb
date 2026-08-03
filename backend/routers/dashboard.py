@@ -1,11 +1,10 @@
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, HTTPException
 from auth_helper import get_current_user
 from database import supabase
 from services import chronotype as chronotype_service, calibration_service, routines_service
-from services import report_service, user_tz as user_tz_service
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
@@ -101,45 +100,105 @@ def get_dashboard(current_user: dict = Depends(get_current_user)):
     }
 
 
-def _latest_report(user_id: str, period_type: str, tz_name: str) -> dict | None:
+def _latest_unseen_report(user_id: str, period_type: str) -> dict | None:
+    """
+    Relatório mais recente do tipo que o usuário ainda NÃO viu. Substitui a
+    antiga janela de 16h: o card fica no Dashboard até ser visto, e depois
+    permanece para sempre no histórico (GET /dashboard/reports/history).
+    """
     res = (
         supabase.table("weekly_reports")
-        .select("period_type, period_start, period_end, data, narrative, created_at")
+        .select("id, period_type, period_start, period_end, data, narrative, created_at")
         .eq("user_id", user_id)
         .eq("period_type", period_type)
+        .is_("seen_at", "null")
         .order("period_start", desc=True)
         .limit(1)
         .execute()
     )
     rows = res.data or []
-    if not rows:
-        return None
-
-    row = rows[0]
-    period_end = date.fromisoformat(str(row["period_end"]))
-    if not report_service.is_within_visibility_window(period_end, tz_name):
-        return None
-    return row
+    return rows[0] if rows else None
 
 
 @router.get("/reports")
-def get_dashboard_reports(
-    current_user: dict = Depends(get_current_user),
-    x_timezone: str | None = Header(None, alias="X-Timezone"),
-):
+def get_dashboard_reports(current_user: dict = Depends(get_current_user)):
     """
-    Relatório semanal e mensal mais recentes do usuário (gerados pelo
-    planning_scheduler), só enquanto estiverem dentro da janela de
-    visibilidade (20h do último dia do período até meio-dia do dia
-    seguinte). Fora da janela ou sem relatório gerado ainda, cada campo
-    vem `null` — o frontend só exibe o card quando presente.
+    Relatório semanal e mensal ainda NÃO VISTOS (gerados pelo
+    planning_scheduler). Cada campo vem `null` quando não há relatório novo —
+    o frontend só exibe o card quando presente. Depois de visto (POST
+    /dashboard/reports/{id}/seen) o relatório sai daqui e fica no histórico.
     """
     user_id = current_user["id"]
-    tz_name = user_tz_service.resolve(user_id, x_timezone)
     return {
-        "weekly": _latest_report(user_id, "weekly", tz_name),
-        "monthly": _latest_report(user_id, "monthly", tz_name),
+        "weekly": _latest_unseen_report(user_id, "weekly"),
+        "monthly": _latest_unseen_report(user_id, "monthly"),
     }
+
+
+@router.get("/reports/history")
+def get_reports_history(
+    period_type: str | None = None,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Histórico permanente de relatórios, do mais recente para o mais antigo.
+    `period_type` opcional filtra por 'weekly' ou 'monthly'. Inclui os já
+    vistos — é o acervo que o usuário usa para comparar semanas e meses.
+    """
+    user_id = current_user["id"]
+
+    if period_type not in (None, "weekly", "monthly"):
+        raise HTTPException(
+            status_code=422, detail="period_type deve ser 'weekly' ou 'monthly'"
+        )
+
+    query = (
+        supabase.table("weekly_reports")
+        .select(
+            "id, period_type, period_start, period_end, data, narrative, "
+            "created_at, seen_at"
+        )
+        .eq("user_id", user_id)
+    )
+    if period_type:
+        query = query.eq("period_type", period_type)
+
+    res = query.order("period_start", desc=True).execute()
+    return res.data or []
+
+
+@router.post("/reports/{report_id}/seen")
+def mark_report_seen(report_id: str, current_user: dict = Depends(get_current_user)):
+    """
+    Marca o relatório como visto: ele sai do Dashboard e passa a existir só
+    no histórico. Idempotente — marcar de novo não muda o seen_at original,
+    para preservar quando o usuário realmente viu.
+    """
+    user_id = current_user["id"]
+
+    res = (
+        supabase.table("weekly_reports")
+        .update({"seen_at": datetime.now(timezone.utc).isoformat()})
+        .eq("id", report_id)
+        .eq("user_id", user_id)  # garante a posse da linha
+        .is_("seen_at", "null")  # idempotência: não sobrescreve marcação anterior
+        .execute()
+    )
+
+    # Sem linha atualizada: ou já estava visto, ou o id não é do usuário.
+    if not res.data:
+        exists = (
+            supabase.table("weekly_reports")
+            .select("id")
+            .eq("id", report_id)
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+        if not exists.data:
+            raise HTTPException(status_code=404, detail="relatório não encontrado")
+
+    return {"status": "ok"}
 
 
 # Níveis que qualificam como "janela de foco recomendada" no card do dashboard.

@@ -1,9 +1,9 @@
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from auth_helper import get_current_user
 from database import supabase
-from models.schemas import DailyLogCreate, DailyLogResponse
+from models.schemas import DailyLogCreate, DailyLogDraft, DailyLogResponse
 from services import memory_service, user_tz, calibration_service
 
 router = APIRouter(prefix="/daily-log", tags=["daily-log"])
@@ -93,6 +93,19 @@ def upsert_daily_log(
     chronotype = (profile_res.data or {}).get("chronotype") or "Misto"
     calibration_service.calibrate_from_log(user_id, chronotype, result.data[0])
 
+    # O registro virou definitivo: o rascunho daquele dia perdeu a razão de
+    # existir. Sem isso, reabrir mostraria o rascunho antigo por cima do salvo.
+    try:
+        (
+            supabase.table("daily_log_drafts")
+            .delete()
+            .eq("user_id", user_id)
+            .eq("date", today)
+            .execute()
+        )
+    except Exception:
+        pass  # rascunho órfão não impede o registro de ser salvo
+
     return _serialize(result.data[0])
 
 
@@ -166,3 +179,95 @@ def get_history(
     )
 
     return [_serialize(row) for row in (result.data or [])]
+
+
+# ---------------------------------------------------------------------------
+# Rascunho do registro (tabela daily_log_drafts — ver Migration 20)
+# Guarda o preenchimento parcial para o usuário não recomeçar do zero. Fica
+# fora de daily_logs para não contar como "dia registrado" nos insights nem
+# disparar calibração/memória com dados pela metade.
+# ---------------------------------------------------------------------------
+
+
+def _draft_date(body_date: str | None, tz_name: str) -> str:
+    """Data alvo do rascunho: a informada (só ontem) ou hoje, no fuso do usuário."""
+    now_date = datetime.now(user_tz.zone(tz_name)).date()
+    if not body_date:
+        return str(now_date)
+    target = date.fromisoformat(body_date)
+    # Mesma regra do POST: rascunho só faz sentido para hoje ou ontem.
+    if target not in (now_date, now_date - timedelta(days=1)):
+        raise HTTPException(
+            status_code=400, detail="rascunho permitido apenas para hoje ou ontem"
+        )
+    return str(target)
+
+
+@router.get("/draft")
+def get_draft(
+    log_date: str | None = Query(default=None, alias="date"),
+    x_timezone: str | None = Header(default=None),
+    current_user: dict = Depends(get_current_user),
+):
+    """Rascunho salvo para a data (hoje por padrão), ou None se não houver."""
+    user_id = current_user["id"]
+    tz_name = user_tz.resolve(user_id, x_timezone)
+    target = _draft_date(log_date, tz_name)
+
+    result = (
+        supabase.table("daily_log_drafts")
+        .select("data, updated_at")
+        .eq("user_id", user_id)
+        .eq("date", target)
+        .limit(1)
+        .execute()
+    )
+
+    if not result.data:
+        return None
+    return result.data[0]
+
+
+@router.put("/draft")
+def save_draft(
+    body: DailyLogDraft,
+    x_timezone: str | None = Header(default=None),
+    current_user: dict = Depends(get_current_user),
+):
+    """Cria/atualiza o rascunho do dia. Um por usuário/data (upsert)."""
+    user_id = current_user["id"]
+    tz_name = user_tz.resolve(user_id, x_timezone)
+    target = _draft_date(body.date, tz_name)
+
+    supabase.table("daily_log_drafts").upsert(
+        {
+            "user_id": user_id,
+            "date": target,
+            "data": body.data,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        },
+        on_conflict="user_id,date",
+    ).execute()
+
+    return {"status": "ok", "date": target}
+
+
+@router.delete("/draft", status_code=204)
+def delete_draft(
+    log_date: str | None = Query(default=None, alias="date"),
+    x_timezone: str | None = Header(default=None),
+    current_user: dict = Depends(get_current_user),
+):
+    """Descarta o rascunho (usuário limpou o formulário)."""
+    user_id = current_user["id"]
+    tz_name = user_tz.resolve(user_id, x_timezone)
+    target = _draft_date(log_date, tz_name)
+
+    (
+        supabase.table("daily_log_drafts")
+        .delete()
+        .eq("user_id", user_id)
+        .eq("date", target)
+        .execute()
+    )
+    return None

@@ -6,6 +6,7 @@ import BottomSheet from "../ui/BottomSheet";
 import EmptyState from "../ui/EmptyState";
 import * as api from "../../lib/api";
 import type { TagPreferences } from "../../lib/api";
+import { slugifyTag } from "../../lib/tagSlug";
 import {
   MOOD_TAGS,
   PRODUCTIVITY_TAGS,
@@ -53,16 +54,8 @@ const DEFAULT_PREFS: TagPreferences = {
 // ===========================================================================
 
 // Cria um identificador estável para tags personalizadas criadas pelo usuário.
-function slugify(label: string): string {
-  return (
-    "custom_" +
-    label
-      .toLowerCase()
-      .trim()
-      .replace(/\s+/g, "_")
-      .replace(/[^a-z0-9_]/g, "")
-  );
-}
+// Compartilhado com o registro diário (ver lib/tagSlug.ts).
+const slugify = slugifyTag;
 
 function getCategoryLabel(category: Category) {
   return CATEGORY_CONFIG.find((item) => item.key === category)?.label ?? "";

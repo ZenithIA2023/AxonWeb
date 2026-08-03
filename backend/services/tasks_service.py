@@ -43,9 +43,8 @@ _PRIORITY_WEIGHT = {"high": 0, "medium": 1, "low": 2}
 
 
 def _task_sort_key(t: dict) -> tuple:
-    """Tarefa chave → Alta → Média → Baixa → mesmo nível: por start_time."""
+    """Alta → Média → Baixa → mesmo nível: por start_time. Tarefa chave não altera a posição."""
     return (
-        0 if t.get("is_key_task") else 1,
         _PRIORITY_WEIGHT.get(t.get("priority") or "medium", 1),
         t.get("start_time") or "",
     )

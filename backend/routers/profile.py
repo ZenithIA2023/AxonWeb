@@ -10,6 +10,10 @@ router = APIRouter(prefix="/profile", tags=["profile"])
 
 AVATAR_BUCKET = "avatars"
 
+# Teto de tags por categoria. O registro diário se propõe a levar menos de um
+# minuto; uma lista sem limite acabaria com essa promessa no celular.
+MAX_TAGS_PER_CATEGORY = 20
+
 # Tags padrão — espelham dayReviewTags.ts do frontend
 _DEFAULT_TAGS = TagPreferences(
     sleep=[
@@ -234,6 +238,18 @@ def update_tags(body: TagPreferences, current_user: dict = Depends(get_current_u
     user_id = current_user["id"]
 
     for category, items in [("sleep", body.sleep), ("mood", body.mood), ("productivity", body.productivity)]:
+        if len(items) > MAX_TAGS_PER_CATEGORY:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Máximo de {MAX_TAGS_PER_CATEGORY} tags por categoria.",
+            )
+        # Slug duplicado quebraria a seleção no formulário (duas tags com a
+        # mesma chave) e a contagem por tag nas correlações.
+        slugs = [t.slug for t in items]
+        if len(slugs) != len(set(slugs)):
+            raise HTTPException(
+                status_code=422, detail=f"Tags duplicadas em '{category}'."
+            )
         for item in items:
             if not item.label.strip():
                 raise HTTPException(status_code=422, detail=f"Tag em '{category}' não pode ter label vazio.")

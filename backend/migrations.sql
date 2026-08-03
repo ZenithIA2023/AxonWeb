@@ -484,3 +484,49 @@ create table if not exists public.weekly_reports (
 
 create unique index if not exists weekly_reports_user_period_idx
   on public.weekly_reports(user_id, period_type, period_start);
+
+-- =============================================
+-- Migration 20: rascunho do registro diário (daily_log_drafts)
+-- ---------------------------------------------
+-- Feature: o usuário abre o registro, preenche parte e fecha — ao reabrir
+-- (em qualquer aparelho) os campos voltam preenchidos.
+-- Tabela SEPARADA de daily_logs de propósito. Gravar rascunho na tabela real
+-- quebraria três coisas que dependem de "linha em daily_logs = dia registrado":
+--   1. insights.py conta len(logs) para destravar padrões (7) e descobertas
+--      (10) — rascunhos vazios destravariam os insights sem dado real;
+--   2. calibration_service.calibrate_from_log ajusta o perfil de energia a
+--      cada save — calibrar com registro pela metade distorce os blocos;
+--   3. memory_service.sync_dated_memory criaria memória de nota incompleta.
+-- Um rascunho por usuário/dia (PK composta): reabrir sobrescreve o anterior.
+-- O rascunho é apagado quando o registro é salvo de verdade (POST /daily-log/).
+-- Sem RLS: só o backend (service_role) acessa, mesmo padrão de axon_insights.
+-- =============================================
+
+create table if not exists public.daily_log_drafts (
+  user_id    uuid references auth.users(id) on delete cascade not null,
+  date       date not null,
+  data       jsonb not null,
+  updated_at timestamptz default now() not null,
+  primary key (user_id, date)
+);
+
+-- =============================================
+-- Migration 21: relatórios — marcação de "visto" + histórico permanente
+-- ---------------------------------------------
+-- Mudança de comportamento (2026-08-03): antes o relatório só aparecia numa
+-- janela fixa de 16h (20h do último dia do período até meio-dia do dia
+-- seguinte) e depois ficava INACESSÍVEL para sempre, mesmo existindo no
+-- banco — narrativa paga ao Claude que o usuário podia nunca ver.
+-- Agora: o card fica no Dashboard desde a geração ATÉ O USUÁRIO VER, e
+-- depois disso o relatório continua acessível para sempre no histórico
+-- (Perfil), permitindo comparar semanas e meses.
+-- `seen_at` nulo = ainda não visto (aparece no Dashboard).
+-- =============================================
+
+alter table public.weekly_reports
+  add column if not exists seen_at timestamptz;
+
+-- Busca do card do Dashboard: "meus relatórios ainda não vistos".
+create index if not exists weekly_reports_user_unseen_idx
+  on public.weekly_reports(user_id, period_type, period_start desc)
+  where seen_at is null;

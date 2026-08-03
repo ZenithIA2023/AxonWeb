@@ -370,7 +370,9 @@ def get_discoveries(
             "status": "collecting",
             "data_points": data_points,
             "days_needed": _DISCOVERIES_MIN_DATA_POINTS,
-            "message": insights_service.collecting_message(data_points),
+            "message": insights_service.collecting_message(
+                data_points, _DISCOVERIES_MIN_DATA_POINTS
+            ),
         }
 
     cached = (

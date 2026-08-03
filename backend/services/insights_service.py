@@ -168,15 +168,21 @@ def generate_insights(rows: list[dict]) -> list[dict]:
     return parse_insights(text)
 
 
-def collecting_message(data_points: int) -> str:
-    faltam = max(0, MIN_DATA_POINTS - data_points)
+def collecting_message(data_points: int, needed: int = MIN_DATA_POINTS) -> str:
+    """
+    Mensagem do estado "collecting". `needed` é parametrizável porque
+    /insights/discoveries exige mais dias que /insights/patterns — com o valor
+    fixo, a mensagem de lá anunciava o número errado.
+    """
+    faltam = max(0, needed - data_points)
     if data_points == 0:
         return (
-            "O Axon ainda não tem dados seus. Comece a preencher o registro "
-            "diário para descobrir seus padrões de sono e produtividade."
+            "O Axon ainda não tem registros seus. Preencha o registro diário "
+            "no fim do dia — em poucos dias ele já consegue mostrar o que "
+            "influencia a sua produtividade."
         )
     return (
         f"O Axon está aprendendo com você. Faltam cerca de {faltam} "
-        f"{'dia' if faltam == 1 else 'dias'} de registro para revelar seus "
+        f"{'registro' if faltam == 1 else 'registros'} para revelar seus "
         "primeiros padrões."
     )

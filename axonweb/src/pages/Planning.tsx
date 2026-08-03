@@ -13,6 +13,7 @@ import {
   Loader2,
   Plus,
   Repeat,
+  RotateCcw,
   Sparkles,
   Star,
   Target,
@@ -434,11 +435,7 @@ function AgendaView({ embedded = false }: { embedded?: boolean } = {}) {
     () =>
       tasks
         .filter((task) => isTaskOnDate(task, selectedIso))
-        .sort((a, b) => {
-          // Tarefa chave sempre no topo, independente do horário.
-          if (!!a.is_key_task !== !!b.is_key_task) return a.is_key_task ? -1 : 1;
-          return (a.start_time ?? "").localeCompare(b.start_time ?? "");
-        }),
+        .sort((a, b) => (a.start_time ?? "").localeCompare(b.start_time ?? "")),
     [tasks, selectedIso]
   );
   const undatedTasks = useMemo(() => {
@@ -542,6 +539,28 @@ function AgendaView({ embedded = false }: { embedded?: boolean } = {}) {
       await loadSubtasks();
     } catch {
       await loadSubtasks();
+    }
+  }
+
+  async function handleDeleteSubtask(subtask: Subtask) {
+    const previous = subtasksMap;
+    // Otimista: some da lista na hora.
+    setSubtasksMap((map) => ({
+      ...map,
+      [subtask.task_id]: (map[subtask.task_id] ?? []).filter(
+        (s) => s.id !== subtask.id
+      ),
+    }));
+
+    try {
+      await api.deleteSubtask(subtask.id);
+      // O backend recalcula status/progresso da tarefa mãe a cada exclusão
+      // (ex.: excluir a única pendente conclui a tarefa) — recarrega ambos.
+      await loadTasks();
+      await loadSubtasks();
+    } catch {
+      setSubtasksMap(previous); // reverte
+      showToast("Não foi possível excluir a subtarefa");
     }
   }
 
@@ -841,6 +860,7 @@ function AgendaView({ embedded = false }: { embedded?: boolean } = {}) {
                             onEdit={handleEdit}
                             onDelete={handleDelete}
                             onToggleSubtask={handleToggleSubtask}
+                            onDeleteSubtask={handleDeleteSubtask}
                             onSubtaskChange={loadSubtasks}
                           />
                         ))}
@@ -1415,6 +1435,7 @@ function TimelineItem({
   onEdit,
   onDelete,
   onToggleSubtask,
+  onDeleteSubtask,
   onSubtaskChange,
 }: {
   task: Task;
@@ -1425,6 +1446,7 @@ function TimelineItem({
   onEdit: (t: Task) => void;
   onDelete: (t: Task) => void;
   onToggleSubtask: (subtask: Subtask) => void;
+  onDeleteSubtask: (subtask: Subtask) => void;
   onSubtaskChange?: () => void;
 }) {
   const isKey = !!task.is_key_task;
@@ -1555,6 +1577,16 @@ function TimelineItem({
               <span className="inline-flex items-center gap-1.5 rounded-full border border-accent-soft bg-accent-soft px-3 py-1 text-[0.65rem] font-semibold text-accent">
                 <CheckCircle2 className="h-3 w-3" />
                 {completedSubtasks}/{subtasks.length}
+              </span>
+            )}
+
+            {task.carry_count > 0 && (
+              <span
+                className="inline-flex items-center gap-1.5 rounded-full border border-orange-300/20 bg-orange-400/10 px-3 py-1 text-[0.65rem] font-semibold text-orange-100"
+                title={`Adiada ${task.carry_count}x`}
+              >
+                <RotateCcw className="h-3 w-3" />
+                {task.carry_count}x adiada
               </span>
             )}
           </div>
@@ -1745,6 +1777,7 @@ function TimelineItem({
               subtasks={subtasks}
               completedSubtasks={completedSubtasks}
               onToggleSubtask={onToggleSubtask}
+              onDeleteSubtask={onDeleteSubtask}
               onSubtaskChange={onSubtaskChange}
             />
           </div>
@@ -1762,12 +1795,14 @@ function SubtasksPreview({
   subtasks,
   completedSubtasks,
   onToggleSubtask,
+  onDeleteSubtask,
   onSubtaskChange,
 }: {
   taskId: string;
   subtasks: Subtask[];
   completedSubtasks: number;
   onToggleSubtask: (subtask: Subtask) => void;
+  onDeleteSubtask: (subtask: Subtask) => void;
   onSubtaskChange?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -1811,30 +1846,48 @@ function SubtasksPreview({
           </div>
 
           {visibleSubtasks.map((subtask) => (
-            <button
+            // Linha = div com dois botões irmãos: <button> aninhado é HTML
+            // inválido e faria o X disparar o toggle junto.
+            <div
               key={subtask.id}
-              type="button"
-              onClick={() => onToggleSubtask(subtask)}
-              className="flex w-full items-start gap-2 rounded-xl px-1 py-1.5 text-left active:scale-[0.99]"
+              className="flex w-full items-start gap-2 rounded-xl px-1 py-1.5 text-left"
             >
-              <span
-                className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
-                  subtask.done
-                    ? "border-emerald-300/30 bg-emerald-400/15 text-emerald-100"
-                    : "border-soft bg-surface-muted text-soft"
-                }`}
+              <button
+                type="button"
+                onClick={() => onToggleSubtask(subtask)}
+                className="flex min-w-0 flex-1 items-start gap-2 text-left active:scale-[0.99]"
               >
-                {subtask.done && <CheckCircle2 className="h-3.5 w-3.5" />}
-              </span>
+                <span
+                  className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
+                    subtask.done
+                      ? "border-emerald-300/30 bg-emerald-400/15 text-emerald-100"
+                      : "border-soft bg-surface-muted text-soft"
+                  }`}
+                >
+                  {subtask.done && <CheckCircle2 className="h-3.5 w-3.5" />}
+                </span>
 
-              <span
-                className={`min-w-0 flex-1 break-words text-xs ${
-                  subtask.done ? "text-soft line-through" : "text-secondary"
-                }`}
+                <span
+                  className={`min-w-0 flex-1 break-words text-xs ${
+                    subtask.done ? "text-soft line-through" : "text-secondary"
+                  }`}
+                >
+                  {subtask.title}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                aria-label={`Excluir subtarefa ${subtask.title}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDeleteSubtask(subtask);
+                }}
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-soft transition hover:text-red-400 active:scale-[0.92]"
               >
-                {subtask.title}
-              </span>
-            </button>
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
           ))}
 
           {canExpand && (

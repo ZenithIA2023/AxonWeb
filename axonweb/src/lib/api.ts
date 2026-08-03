@@ -414,12 +414,14 @@ export interface PeriodReportData {
 }
 
 export interface PeriodReport {
+  id: string;
   period_type: "weekly" | "monthly";
   period_start: string;
   period_end: string;
   data: PeriodReportData;
   narrative: string;
   created_at: string;
+  seen_at?: string | null;
 }
 
 export interface DashboardReports {
@@ -427,9 +429,24 @@ export interface DashboardReports {
   monthly: PeriodReport | null;
 }
 
-// Relatórios narrativos gerados pelo scheduler (semanal toda segunda, mensal todo dia 1º).
+// Relatórios ainda NÃO VISTOS — alimentam o card do Dashboard. Depois de
+// marcados como vistos saem daqui e ficam só no histórico (Perfil).
 export function getDashboardReports() {
   return request<DashboardReports>("/dashboard/reports");
+}
+
+// Histórico permanente, do mais recente ao mais antigo. Sem filtro devolve
+// semanais e mensais juntos.
+export function getReportsHistory(periodType?: "weekly" | "monthly") {
+  const qs = periodType ? `?period_type=${periodType}` : "";
+  return request<PeriodReport[]>(`/dashboard/reports/history${qs}`);
+}
+
+// Tira o relatório do Dashboard; ele continua no histórico.
+export function markReportSeen(reportId: string) {
+  return request<{ status: string }>(`/dashboard/reports/${reportId}/seen`, {
+    method: "POST",
+  });
 }
 
 /* ============================================================================
@@ -459,6 +476,7 @@ export interface Task {
   group_name?: string | null;
   deadline?: string | null;
   is_key_task: boolean;
+  carry_count: number;
   objective_id?: string | null;
   objective_title?: string | null;
   created_by: "user" | "agent";
@@ -952,6 +970,7 @@ export interface DailyLog {
 }
 
 export interface DailyLogInput {
+  date?: string; // "YYYY-MM-DD" — omitir para registrar hoje; passar ontem para registro retroativo
   sleep_time?: string;
   wake_time?: string;
   sleep_rating?: number;
@@ -967,6 +986,38 @@ export interface DailyLogInput {
 
 export function getDailyLogToday() {
   return request<DailyLog | null>("/daily-log/today");
+}
+
+export function getDailyLogYesterday() {
+  return request<DailyLog | null>("/daily-log/yesterday");
+}
+
+// Rascunho do registro: preenchimento parcial, guardado fora de daily_logs
+// para não contar como "dia registrado" nos insights. `data` é o formulário
+// como o DayReview o mantém.
+export interface DailyLogDraft {
+  data: Record<string, unknown>;
+  updated_at: string;
+}
+
+export function getDailyLogDraft(date?: string) {
+  const qs = date ? `?date=${date}` : "";
+  return request<DailyLogDraft | null>(`/daily-log/draft${qs}`);
+}
+
+export function saveDailyLogDraft(
+  data: Record<string, unknown>,
+  date?: string
+) {
+  return request<{ status: string; date: string }>("/daily-log/draft", {
+    method: "PUT",
+    body: JSON.stringify({ date, data }),
+  });
+}
+
+export function deleteDailyLogDraft(date?: string) {
+  const qs = date ? `?date=${date}` : "";
+  return request<null>(`/daily-log/draft${qs}`, { method: "DELETE" });
 }
 
 export function getDailyLogHistory(days = 30) {

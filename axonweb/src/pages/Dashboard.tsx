@@ -59,6 +59,12 @@ export default function Dashboard() {
   const [showNextBlock, setShowNextBlock] = useState(false);
   const [todayLog, setTodayLog] = useState<api.DailyLog | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
+  // Pop-up automático (1x/dia), independente do DayReview manual acima.
+  const [autoReviewOpen, setAutoReviewOpen] = useState(false);
+  const [autoReviewDate, setAutoReviewDate] = useState<string | undefined>(
+    undefined
+  );
+  const [yesterdayLog, setYesterdayLog] = useState<api.DailyLog | null>(null);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState<number | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -229,6 +235,64 @@ export default function Dashboard() {
       window.history.replaceState({}, "", location.pathname);
     }
   }, [location.state, location.pathname]);
+
+  // --------------------------------------------------------------------------
+  // Relatório visto: sai do Dashboard e passa a viver só no histórico (Perfil).
+  // Otimista — o card some na hora; se o POST falhar, ele volta no próximo
+  // carregamento, o que é melhor que travar a UI esperando a rede.
+  // --------------------------------------------------------------------------
+  function handleReportSeen(reportId: string) {
+    setReports((prev) =>
+      prev
+        ? {
+            weekly: prev.weekly?.id === reportId ? null : prev.weekly,
+            monthly: prev.monthly?.id === reportId ? null : prev.monthly,
+          }
+        : prev
+    );
+    api.markReportSeen(reportId).catch(() => {});
+  }
+
+  // --------------------------------------------------------------------------
+  // Pop-up automático de registro diário (1x por dia)
+  // Prioridade: ontem sem registro > hoje incompleto.
+  // --------------------------------------------------------------------------
+  useEffect(() => {
+    if (!api.isLoggedIn()) return;
+
+    // sv-SE produz YYYY-MM-DD no fuso LOCAL. toISOString() converteria para
+    // UTC e, em UTC-3 após as 21h, devolveria a data de amanhã.
+    const todayISO = new Date().toLocaleDateString("sv-SE");
+    if (localStorage.getItem("axon_last_opened") === todayISO) return;
+    localStorage.setItem("axon_last_opened", todayISO);
+
+    Promise.all([
+      api.getDailyLogYesterday().catch(() => null),
+      api.getDailyLogToday().catch(() => null),
+    ]).then(([yesterday, today]) => {
+      setYesterdayLog(yesterday);
+
+      // Ontem sem registro: prioridade máxima.
+      if (!yesterday) {
+        const d = new Date();
+        d.setDate(d.getDate() - 1);
+        setAutoReviewDate(d.toLocaleDateString("sv-SE"));
+        setAutoReviewOpen(true);
+        return;
+      }
+
+      // Ontem ok — hoje está completo?
+      const todayComplete =
+        today?.sleep_rating != null &&
+        today?.mood_rating != null &&
+        today?.productivity_rating != null;
+
+      if (!todayComplete) {
+        setAutoReviewDate(undefined); // sem targetDate = hoje
+        setAutoReviewOpen(true);
+      }
+    });
+  }, []);
 
   // --------------------------------------------------------------------------
   // Abertura automática das notificações
@@ -696,11 +760,19 @@ export default function Dashboard() {
         </section>
 
         {reports?.weekly && (
-          <PeriodReportCard title="Relatório da semana" report={reports.weekly} />
+          <PeriodReportCard
+            title="Relatório da semana"
+            report={reports.weekly}
+            onSeen={handleReportSeen}
+          />
         )}
 
         {reports?.monthly && (
-          <PeriodReportCard title="Relatório do mês" report={reports.monthly} />
+          <PeriodReportCard
+            title="Relatório do mês"
+            report={reports.monthly}
+            onSeen={handleReportSeen}
+          />
         )}
           </div>
         </div>
@@ -718,6 +790,19 @@ export default function Dashboard() {
         onClose={() => setReviewOpen(false)}
         existing={todayLog}
         onSaved={(log) => setTodayLog(log)}
+      />
+
+      <DayReview
+        isOpen={autoReviewOpen}
+        onClose={() => setAutoReviewOpen(false)}
+        existing={autoReviewDate ? yesterdayLog : todayLog}
+        targetDate={autoReviewDate}
+        isYesterday={!!autoReviewDate}
+        onSaved={(log) => {
+          setAutoReviewOpen(false);
+          if (autoReviewDate) setYesterdayLog(log);
+          else setTodayLog(log);
+        }}
       />
 
       <NotificationsSheet
@@ -830,9 +915,11 @@ function CircularMetricCard({
 function PeriodReportCard({
   title,
   report,
+  onSeen,
 }: {
   title: string;
   report: api.PeriodReport;
+  onSeen: (reportId: string) => void;
 }) {
   const { data, narrative } = report;
   const topRoutine = [...data.routine_consistency].sort(
@@ -877,6 +964,15 @@ function PeriodReportCard({
           </div>
         )}
       </div>
+
+      {/* Dispensar tira o card do Dashboard; o relatório segue no histórico. */}
+      <button
+        type="button"
+        onClick={() => onSeen(report.id)}
+        className="mt-4 inline-flex min-h-10 w-full items-center justify-center rounded-2xl border border-soft bg-surface-muted px-4 text-xs font-semibold text-muted transition active:scale-[0.98]"
+      >
+        Entendi, guardar no histórico
+      </button>
     </section>
   );
 }
