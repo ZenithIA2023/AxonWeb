@@ -24,6 +24,8 @@
   --surface-base: rgba(255, 255, 255, 0.72);
   --surface-elevated: rgba(255, 255, 255, 0.88);
   --surface-muted: rgba(123, 44, 191, 0.085);
+  /* Fundo do calendário mensal (Planejamento). */
+  --calendar-surface: rgba(123, 44, 191, 0.085);
 
   --text-primary: #181322;
   --text-secondary: rgba(24, 19, 34, 0.68);
@@ -66,6 +68,8 @@
   --surface-base: rgba(23, 23, 32, 0.82);
   --surface-elevated: rgba(23, 23, 32, 0.96);
   --surface-muted: rgba(255, 255, 255, 0.045);
+  /* Fundo do calendário mensal (Planejamento). */
+  --calendar-surface: #13131d;
 
   --text-primary: #ffffff;
   --text-secondary: rgba(255, 255, 255, 0.68);
@@ -122,6 +126,10 @@
 
 .bg-surface-muted {
   background: var(--surface-muted);
+}
+
+.bg-calendar {
+  background: var(--calendar-surface);
 }
 
 .text-primary {
@@ -295,6 +303,27 @@ body {
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
+  }
+}
+
+/* ==========================================================================
+   CARD DA LINHA DO TEMPO (PLANEJAMENTO)
+   ========================================================================== */
+
+/*
+  A silhueta do card (aba de status + corpo numa peça só, com canto côncavo
+  na junção) é recortada por clip-path: shape(), definido inline no
+  TimelineItem. shape() é recente; onde não houver suporte, o clip-path é
+  ignorado e o card apareceria como um retângulo reto. O fallback abaixo
+  devolve os cantos arredondados nesse caso — perde-se a aba, não a leitura.
+*/
+.timeline-card {
+  border-radius: 1.55rem;
+}
+
+@supports (clip-path: shape(from 0px 0px, close)) {
+  .timeline-card {
+    border-radius: 0;
   }
 }
 
