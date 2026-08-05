@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import type { ElementType } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ElementType, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
   CalendarDays,
@@ -23,7 +23,7 @@ import {
 import DayReview from "./DayReview";
 import Sidebar from "../components/layout/Sidebar";
 import * as api from "../lib/api";
-import type { DashboardData, FocusBlock, Task, Subtask } from "../lib/api";
+import type { BlockTask, DashboardData, FocusBlock, Subtask } from "../lib/api";
 import { AppBackground } from "../components/layout/AppBackground";
 import PageHeader from "../components/layout/PageHeader";
 import axonHeadHappy from "../assets/axon/axon-head-happy.png";
@@ -31,6 +31,25 @@ import EmptyState from "../components/ui/EmptyState";
 import { ScrollArea } from "../components/ui/ScrollArea";
 
 const NOTIFICATIONS_PAGE_SIZE = 10;
+
+// Gesto de arrastar nas linhas de "Hoje" -----------------------------------
+// Folga (px) antes de assumir o toque como horizontal: abaixo disso o gesto
+// continua sendo rolagem vertical da lista.
+const SWIPE_ENGAGE_PX = 12;
+// Deslocamento (px) a partir do qual soltar dispara a ação.
+const SWIPE_TRIGGER_PX = 92;
+// Teto do arraste, para a linha não sair de dentro do card.
+const SWIPE_MAX_PX = 136;
+// Duração (ms) da animação de saída antes de a ação rodar de fato.
+const SWIPE_EXIT_MS = 180;
+
+// Marcador lateral das linhas de "Hoje" -------------------------------------
+// Janela assumida para tarefas sem horário de término: passados esses minutos
+// desde o início, a tarefa deixa de estar "acontecendo agora".
+const DEFAULT_TASK_DURATION_MIN = 30;
+// De quanto em quanto tempo o relógio da página avança (ms). O marcador muda
+// de estado sozinho na virada do horário, sem depender de recarregar a página.
+const CLOCK_TICK_MS = 30 * 1000;
 
 // Esperas (ms) entre as tentativas da carga inicial do dashboard. Em dev o
 // front sobe antes do uvicorn e serviços hospedados podem estar em cold
@@ -42,9 +61,55 @@ const DASHBOARD_RETRY_DELAYS_MS = [1500, 4000];
 // Props e aliases usados apenas na montagem visual do Dashboard.
 // ============================================================================
 
+// Situação da tarefa em relação ao relógio, usada só no marcador lateral:
+// "current" = o horário dela é agora; "overdue" = o horário passou e ela
+// continua pendente; null = ainda vai acontecer (ou já foi concluída).
+type TaskTiming = "current" | "overdue" | null;
+
+function minutesSinceMidnight() {
+  const now = new Date();
+  return now.getHours() * 60 + now.getMinutes();
+}
+
+function parseClockMinutes(value?: string | null) {
+  if (!value) return null;
+
+  const [rawHours, rawMinutes] = value.split(":");
+  const hours = Number(rawHours);
+  const minutes = Number(rawMinutes);
+
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+
+  return hours * 60 + minutes;
+}
+
+function getTaskTiming(task: BlockTask, nowMinutes: number): TaskTiming {
+  if (task.status === "done") return null;
+
+  // Tocada manualmente como "em andamento": vale como agora, independente do
+  // relógio (o usuário adiantou ou atrasou a execução de propósito).
+  const isRunning = task.status === "progress";
+
+  const start = parseClockMinutes(task.start_time);
+  if (start === null) return isRunning ? "current" : null;
+
+  const parsedEnd = parseClockMinutes(task.end_time);
+  const end =
+    parsedEnd === null
+      ? start + DEFAULT_TASK_DURATION_MIN
+      : parsedEnd <= start
+      ? parsedEnd + 24 * 60 // término no dia seguinte
+      : parsedEnd;
+
+  if (nowMinutes < start) return isRunning ? "current" : null;
+  if (nowMinutes < end) return "current";
+
+  return "overdue";
+}
+
 // ============================================================================
 // Página Dashboard
-// Tela inicial pós-login: ritmo atual, tarefa-chave, plano do dia e notificações.
+// Tela inicial pós-login: ritmo atual, plano do dia e notificações.
 // ============================================================================
 
 export default function Dashboard() {
@@ -64,7 +129,6 @@ export default function Dashboard() {
   // (Não há mais um `loading` aqui: a ausência de `data` já significa
   // "ainda não tenho o que mostrar", e `loadError` diz se foi falha.)
   const [loadError, setLoadError] = useState(false);
-  const [keyTask, setKeyTask] = useState<Task | null>(null);
   const [subtasksMap, setSubtasksMap] = useState<Record<string, Subtask[]>>({});
   const [showNextBlock, setShowNextBlock] = useState(false);
   const [todayLog, setTodayLog] = useState<api.DailyLog | null>(null);
@@ -78,6 +142,19 @@ export default function Dashboard() {
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState<number | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
+  // Linhas de "Hoje" já resolvidas por gesto (concluir/adiar) e escondidas na
+  // hora, antes de o dashboard recarregar. A lista do servidor é a verdade: um
+  // id só sai daqui quando some da resposta (ver efeito abaixo) ou quando a
+  // ação falha/é desfeita.
+  const [swipedTaskIds, setSwipedTaskIds] = useState<string[]>([]);
+  const [swipeToast, setSwipeToast] = useState<{
+    message: string;
+    tone: "done" | "error";
+    onUndo?: () => void;
+  } | null>(null);
+  const swipeToastTimer = useRef<number | null>(null);
+  // Minuto atual do dia (0–1439), base do marcador lateral das tarefas.
+  const [nowMinutes, setNowMinutes] = useState(() => minutesSinceMidnight());
 
   // --------------------------------------------------------------------------
   // Notificações
@@ -178,8 +255,120 @@ export default function Dashboard() {
   }, []);
 
   // --------------------------------------------------------------------------
+  // Gestos da lista "Hoje"
+  // Arrastar a linha para a direita conclui; para a esquerda, empurra para
+  // amanhã. Nos dois casos o item deixa de pertencer ao plano de hoje (o
+  // dashboard só devolve pendentes da data atual), então a linha some na hora
+  // e o toast oferece desfazer enquanto estiver visível.
+  // --------------------------------------------------------------------------
+  const showSwipeToast = useCallback(
+    (toast: {
+      message: string;
+      tone: "done" | "error";
+      onUndo?: () => void;
+    }) => {
+      setSwipeToast(toast);
+
+      if (swipeToastTimer.current) {
+        window.clearTimeout(swipeToastTimer.current);
+      }
+
+      swipeToastTimer.current = window.setTimeout(
+        () => setSwipeToast(null),
+        6000
+      );
+    },
+    []
+  );
+
+  useEffect(() => {
+    return () => {
+      if (swipeToastTimer.current) window.clearTimeout(swipeToastTimer.current);
+    };
+  }, []);
+
+  const refreshDayPlan = useCallback(() => {
+    loadDashboard();
+    loadSubtasks();
+  }, [loadDashboard, loadSubtasks]);
+
+  // Traz a linha de volta quando a ação falha ou o usuário desfaz.
+  const restoreSwipedTask = useCallback((taskId: string) => {
+    setSwipedTaskIds((ids) => ids.filter((id) => id !== taskId));
+  }, []);
+
+  const completeTaskBySwipe = useCallback(
+    async (task: BlockTask) => {
+      setSwipedTaskIds((ids) =>
+        ids.includes(task.id) ? ids : [...ids, task.id]
+      );
+
+      // Reabrir devolve ao estado anterior; `progress: 0` acompanha o que o
+      // Planejamento já faz ao desmarcar (o backend também desmarca as
+      // subtarefas concluídas junto).
+      const previousStatus = task.status === "progress" ? "progress" : "todo";
+
+      try {
+        await api.updateTask(task.id, { status: "done", progress: 100 });
+        refreshDayPlan();
+
+        showSwipeToast({
+          message: `“${task.title}” concluída`,
+          tone: "done",
+          onUndo: async () => {
+            try {
+              await api.updateTask(task.id, {
+                status: previousStatus,
+                progress: 0,
+              });
+            } finally {
+              restoreSwipedTask(task.id);
+              refreshDayPlan();
+            }
+          },
+        });
+      } catch {
+        restoreSwipedTask(task.id);
+        showSwipeToast({
+          message: "Não foi possível concluir agora",
+          tone: "error",
+        });
+      }
+    },
+    [refreshDayPlan, restoreSwipedTask, showSwipeToast]
+  );
+
+  const postponeTaskBySwipe = useCallback(
+    async (task: BlockTask) => {
+      setSwipedTaskIds((ids) =>
+        ids.includes(task.id) ? ids : [...ids, task.id]
+      );
+
+      // "sv-SE" = YYYY-MM-DD no fuso local, o mesmo formato que o backend usa
+      // em scheduled_date (o ISO em UTC erraria o dia perto da meia-noite).
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const tomorrowISO = tomorrow.toLocaleDateString("sv-SE");
+
+      try {
+        // Sem toast no sucesso: a própria linha saindo da lista já é o retorno
+        // do gesto. Só a falha avisa (abaixo), porque aí a linha volta.
+        await api.updateTask(task.id, { scheduled_date: tomorrowISO });
+        refreshDayPlan();
+      } catch {
+        restoreSwipedTask(task.id);
+        showSwipeToast({
+          message: "Não foi possível adiar agora",
+          tone: "error",
+        });
+      }
+    },
+    [refreshDayPlan, restoreSwipedTask, showSwipeToast]
+  );
+
+  // --------------------------------------------------------------------------
   // Carregamento principal
-  // Busca dashboard, tarefa-chave, revisão diária, subtarefas e notificações.
+  // Busca dashboard, revisão diária, subtarefas e notificações.
   // Também atualiza dados ao retornar para a aba e a cada 30 minutos.
   // --------------------------------------------------------------------------
   useEffect(() => {
@@ -187,15 +376,6 @@ export default function Dashboard() {
       navigate("/login");
       return;
     }
-
-    const todayISO = new Date().toISOString().slice(0, 10);
-
-    const loadKeyTask = () => {
-      api
-        .getTasks({ scheduled_date: todayISO })
-        .then((tasks) => setKeyTask(tasks.find((t) => t.is_key_task) ?? null))
-        .catch(() => null);
-    };
 
     const loadDailyLog = () => {
       api
@@ -225,14 +405,12 @@ export default function Dashboard() {
     loadDashboard(0); // só a carga inicial retenta (backend pode estar subindo)
     loadDailyLog();
     loadReports();
-    loadKeyTask();
     loadSubtasks();
     refreshUnreadCount();
     analyzeNotificationsAndRefresh();
 
     const interval = window.setInterval(() => {
       loadDashboard();
-      loadKeyTask();
       loadSubtasks();
     }, 30 * 60 * 1000);
 
@@ -242,6 +420,9 @@ export default function Dashboard() {
     const handleVisibility = () => {
       if (document.hidden) return;
 
+      // Em aba oculta o navegador estrangula o setInterval do relógio; ao
+      // voltar, o marcador precisa refletir o horário de agora na hora.
+      setNowMinutes(minutesSinceMidnight());
       loadDashboard();
       loadSubtasks();
       refreshUnreadCount();
@@ -256,6 +437,17 @@ export default function Dashboard() {
       document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, [navigate, refreshUnreadCount, loadSubtasks, loadDashboard]);
+
+  // Relógio da página: só o minuto importa, então um tique de 30s já garante
+  // que a tarefa vire "agora" (e depois "atrasada") sem recarregar nada.
+  useEffect(() => {
+    const clock = window.setInterval(
+      () => setNowMinutes(minutesSinceMidnight()),
+      CLOCK_TICK_MS
+    );
+
+    return () => window.clearInterval(clock);
+  }, []);
 
   // --------------------------------------------------------------------------
   // Abertura automática da revisão diária
@@ -354,7 +546,14 @@ export default function Dashboard() {
   const chronotypeLabel = data?.chronotype_label ?? "Perfil Intermediário";
   const energyPeak = data?.energy_peak ?? "Entre 9h e 15h";
   const focusWindow = data?.focus_window ?? "Meio do dia";
-  const greeting = data?.greeting ?? "Bom dia";
+  // O backend devolve "Bom dia, Nome Completo" — na saudação exibimos só o
+  // primeiro nome para manter o título curto.
+  const greeting = useMemo(() => {
+    const raw = data?.greeting ?? "Bom dia";
+    const [salutation, ...rest] = raw.split(",");
+    const firstName = rest.join(",").trim().split(/\s+/)[0];
+    return firstName ? `${salutation.trim()}, ${firstName}` : raw;
+  }, [data?.greeting]);
 
   const energyPercent = data?.energy_percent ?? 78;
   const focusPercent = data?.focus_percent ?? 64;
@@ -385,7 +584,34 @@ export default function Dashboard() {
   // "Entre 9h e 15h", energia/foco fixos) como se fossem dados reais.
   const isDashboardBooting = !data;
 
-  const flatTasks = dayBlocks.flatMap((block) => block.tasks);
+  const dayTasks = dayBlocks.flatMap((block) => block.tasks);
+
+  // O backend agrupa o dia em blocos de 90 min e, DENTRO de cada bloco, ordena
+  // por importância (tarefa chave → prioridade → horário). Achatar os blocos
+  // herda essa ordem e embaralha o relógio — aqui a lista é uma linha do dia,
+  // então reordena por start_time ("HH:MM" ordena bem como texto).
+  const flatTasks = dayTasks
+    .filter((task) => !swipedTaskIds.includes(task.id))
+    .sort((a, b) =>
+      (a.start_time || "99:99").localeCompare(b.start_time || "99:99")
+    );
+
+  // Quando a tarefa arrastada some da resposta do dashboard, o esconde-esconde
+  // local já cumpriu o papel e pode ser descartado. Ids que continuam voltando
+  // do servidor seguem escondidos até a ação confirmar (ou o catch/desfazer
+  // devolver a linha), evitando o pisca-pisca de reaparecer e sumir.
+  useEffect(() => {
+    setSwipedTaskIds((ids) => {
+      if (ids.length === 0) return ids;
+
+      const stillListed = ids.filter((id) =>
+        dayTasks.some((task) => task.id === id)
+      );
+
+      return stillListed.length === ids.length ? ids : stillListed;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
 
   const focusRecommendationByTaskId = useMemo(() => {
     const recommendationMap: Record<
@@ -571,64 +797,8 @@ export default function Dashboard() {
               )}
             </section>
 
-            {keyTask && (
-          <section>
-            <button
-              type="button"
-              onClick={() => navigate("/planning")}
-              className={`group w-full rounded-[1.8rem] border p-4 text-left shadow-card transition active:scale-[0.98] ${
-                keyTask.status === "done"
-                  ? "border-emerald-300/25 bg-emerald-500/10"
-                  : "border-amber-300/25 bg-amber-500/10"
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <div
-                  className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border ${
-                    keyTask.status === "done"
-                      ? "border-emerald-300/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-100"
-                      : "border-amber-300/25 bg-amber-500/10 text-amber-700 dark:text-amber-100"
-                  }`}
-                >
-                  <Star
-                    className={`h-5 w-5 ${
-                      keyTask.status !== "done"
-                        ? "fill-amber-400 text-amber-400"
-                        : ""
-                    }`}
-                  />
-                </div>
-
-                <div className="min-w-0 flex-1">
-                  <p className="text-[0.68rem] font-black uppercase tracking-[0.14em] text-muted">
-                    Tarefa-chave
-                  </p>
-
-                  <p
-                    className={`mt-1 truncate text-sm font-black ${
-                      keyTask.status === "done"
-                        ? "text-emerald-700 line-through opacity-70 dark:text-emerald-100"
-                        : "text-primary"
-                    }`}
-                  >
-                    {keyTask.title}
-                  </p>
-                </div>
-
-                <span
-                  className={`shrink-0 rounded-full border px-3 py-1 text-[0.68rem] font-black ${
-                    keyTask.status === "done"
-                      ? "border-emerald-300/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-100"
-                      : "border-amber-300/25 bg-amber-500/10 text-amber-700 dark:text-amber-100"
-                  }`}
-                >
-                  {keyTask.status === "done" ? "Feita" : "Pendente"}
-                </span>
-              </div>
-            </button>
-          </section>
-        )}
-
+        {/* A tarefa-chave não tem card próprio: aparece na lista "Próximos
+            movimentos do seu dia", junto das demais tarefas/eventos. */}
         <section className="grid grid-cols-2 gap-3">
           <CircularMetricCard
             icon={Zap}
@@ -647,7 +817,12 @@ export default function Dashboard() {
           </div>
 
           <div className="space-y-4 lg:flex lg:h-full lg:min-h-0 lg:flex-col">
-        <section className="relative overflow-hidden rounded-[2rem] border border-soft bg-surface-elevated p-4 shadow-card backdrop-blur-2xl lg:flex lg:h-full lg:min-h-0 lg:flex-col lg:p-5">
+        {/* No desktop o card fica absoluto dentro deste wrapper: assim ele não
+            empurra a altura da linha do grid — quem manda na altura é a coluna
+            da esquerda (bloco de foco + energia/foco) e o card termina alinhado
+            com ela, rolando a lista por dentro quando há mais movimentos. */}
+        <div className="lg:relative lg:min-h-0 lg:flex-1">
+        <section className="relative overflow-hidden rounded-[2rem] border border-soft bg-surface-elevated p-4 shadow-card backdrop-blur-2xl lg:absolute lg:inset-0 lg:flex lg:min-h-0 lg:flex-col lg:p-5">
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,var(--accent-soft),transparent_58%)]" />
 
           <div className="relative mb-4 flex items-start justify-between gap-4">
@@ -658,6 +833,21 @@ export default function Dashboard() {
               <p className="mt-2 text-xs leading-5 text-muted">
                 Próximos movimentos do seu dia
               </p>
+
+              {/* O gesto é invisível por natureza: sem esta dica ninguém
+                  descobre que dá para resolver a tarefa sem sair do Dashboard. */}
+              {flatTasks.length > 0 && (
+                <p className="mt-1 flex items-center gap-1.5 text-[0.62rem] font-semibold text-soft">
+                  Arraste
+                  <span className="text-emerald-700 dark:text-emerald-100">
+                    → concluir
+                  </span>
+                  ·
+                  <span className="text-indigo-700 dark:text-indigo-200">
+                    ← amanhã
+                  </span>
+                </p>
+              )}
             </div>
 
             <button
@@ -681,7 +871,7 @@ export default function Dashboard() {
             />
           ) : (
             <div className="custom-scrollbar relative space-y-2.5 lg:min-h-0 lg:flex-1 lg:space-y-3 lg:overflow-y-auto lg:pr-1">
-              {flatTasks.slice(0, 5).map((task) => {
+              {flatTasks.map((task) => {
                 const isActive = task.status === "progress";
                 const isDone = task.status === "done";
                 const isKey = task.is_key_task;
@@ -692,128 +882,132 @@ export default function Dashboard() {
                 ).length;
                 const hasSubtasks = subtasks.length > 0;
                 const focusRecommendation = focusRecommendationByTaskId[task.id];
+                const timing = getTaskTiming(task, nowMinutes);
 
                 return (
-                  <button
+                  <SwipeableTaskRow
                     key={task.id}
-                    type="button"
-                    onClick={() => navigate("/planning")}
-                    className={`group relative flex w-full gap-3 overflow-hidden rounded-[1.45rem] border p-3 text-left transition active:scale-[0.99] lg:p-3.5 ${
-                      isKey
-                        ? "border-amber-300/25 bg-amber-500/10"
-                        : focusRecommendation
-                        ? "border-accent-soft bg-accent-soft"
-                        : isActive
-                        ? "border-accent-soft bg-surface-muted"
-                        : "border-soft bg-surface-muted"
-                    }`}
+                    onComplete={() => completeTaskBySwipe(task)}
+                    onPostpone={() => postponeTaskBySwipe(task)}
                   >
-                    <div
-                      className={`absolute left-0 top-4 h-[calc(100%-2rem)] w-1 rounded-r-full ${
+                    <button
+                      type="button"
+                      onClick={() => navigate("/planning")}
+                      className={`group relative flex w-full gap-3 overflow-hidden rounded-[1.45rem] border p-3 text-left transition active:scale-[0.99] lg:p-3.5 ${
                         isKey
-                          ? "bg-amber-400"
-                          : focusRecommendation || isActive
-                          ? "bg-[var(--accent)]"
-                          : "bg-transparent"
+                          ? "border-amber-300/25 bg-amber-500/10"
+                          : focusRecommendation
+                          ? "border-accent-soft bg-accent-soft"
+                          : isActive
+                          ? "border-accent-soft bg-surface-muted"
+                          : "border-soft bg-surface-muted"
                       }`}
-                    />
+                    >
+                      {/* Marcador lateral: âmbar na tarefa chave (visual
+                          próprio, sempre), roxo enquanto o horário da tarefa
+                          está acontecendo e vermelho quando esse horário passou
+                          sem ela ser concluída. */}
+                      <div
+                        aria-hidden
+                        className={`absolute left-0 top-4 h-[calc(100%-2rem)] w-1 rounded-r-full transition-colors ${
+                          isKey
+                            ? "bg-amber-400"
+                            : timing === "current"
+                            ? "bg-[var(--accent)]"
+                            : timing === "overdue"
+                            ? "bg-rose-400"
+                            : "bg-transparent"
+                        }`}
+                      />
 
-                    <div className="min-w-0 flex-1 py-0.5">
-                      <div className="flex min-w-0 items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p
-                            className={`min-w-0 truncate text-sm font-black leading-5 ${
-                              isDone
-                                ? "text-muted line-through"
-                                : isKey
-                                ? "text-amber-700 dark:text-amber-100"
-                                : "text-primary"
-                            }`}
-                          >
-                            {task.title}
-                          </p>
-
-                          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-muted">
-                            <span>
-                              {task.objective_title ? task.objective_title : taskTypeLabel[task.task_type] ?? "Tarefa"}
-                            </span>
-
-                            {hasSubtasks && (
-                              <>
-                                <span className="text-soft">·</span>
-
-                                <span className="inline-flex items-center gap-1 font-semibold text-accent">
-                                  <CheckCircle2 className="h-3 w-3" />
-                                  {completedSubtasks}/{subtasks.length}
-                                </span>
-                              </>
-                            )}
-
-                            {isKey && (
-                              <>
-                                <span className="text-soft">·</span>
-
-                                <span className="inline-flex items-center gap-1 font-semibold text-amber-700 dark:text-amber-100">
-                                  <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
-                                  Tarefa-chave
-                                </span>
-                              </>
-                            )}
-
-                            {focusRecommendation && (
-                              <>
-                                <span className="text-soft">·</span>
-
-                                <span
-                                  title={focusRecommendation.time}
-                                  className="inline-flex items-center gap-1 font-semibold text-accent"
-                                >
-                                  <Sparkles className="h-3 w-3" />
-                                  {focusRecommendation.label}
-                                </span>
-                              </>
-                            )}
-                          </div>
-                        </div>
-
-                        {(task.start_time || task.end_time) && (
-                          <div className="shrink-0 pt-0.5 text-right">
-                            <p className="text-[0.7rem] font-black leading-none text-secondary">
-                              {task.start_time ?? "—"}
+                      <div className="min-w-0 flex-1 py-0.5">
+                        <div className="flex min-w-0 items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p
+                              className={`min-w-0 truncate text-sm font-black leading-5 ${
+                                isDone
+                                  ? "text-muted line-through"
+                                  : isKey
+                                  ? "text-amber-700 dark:text-amber-100"
+                                  : "text-primary"
+                              }`}
+                            >
+                              {task.title}
                             </p>
 
-                            {task.end_time && (
-                              <p className="mt-1 text-[0.56rem] font-semibold leading-none text-soft">
-                                até {task.end_time}
-                              </p>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
+                            <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-muted">
+                              <span>
+                                {task.objective_title ? task.objective_title : taskTypeLabel[task.task_type] ?? "Tarefa"}
+                              </span>
 
-                    {isDone && (
-                      <div className="flex shrink-0 items-center text-emerald-700 dark:text-emerald-100">
-                        <CheckCircle2 className="h-4 w-4" />
+                              {hasSubtasks && (
+                                <>
+                                  <span className="text-soft">·</span>
+
+                                  <span className="inline-flex items-center gap-1 font-semibold text-accent">
+                                    <CheckCircle2 className="h-3 w-3" />
+                                    {completedSubtasks}/{subtasks.length}
+                                  </span>
+                                </>
+                              )}
+
+                              {isKey && (
+                                <>
+                                  <span className="text-soft">·</span>
+
+                                  <span className="inline-flex items-center gap-1 font-semibold text-amber-700 dark:text-amber-100">
+                                    <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
+                                    Tarefa-chave
+                                  </span>
+                                </>
+                              )}
+
+                              {focusRecommendation && (
+                                <>
+                                  <span className="text-soft">·</span>
+
+                                  <span
+                                    title={focusRecommendation.time}
+                                    className="inline-flex items-center gap-1 font-semibold text-accent"
+                                  >
+                                    <Sparkles className="h-3 w-3" />
+                                    {focusRecommendation.label}
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+
+                          {(task.start_time || task.end_time) && (
+                            <div className="shrink-0 pt-0.5 text-right">
+                              <p className="text-[0.7rem] font-black leading-none text-secondary">
+                                {task.start_time ?? "—"}
+                              </p>
+
+                              {task.end_time && (
+                                <p className="mt-1 text-[0.56rem] font-semibold leading-none text-soft">
+                                  até {task.end_time}
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    )}
-                  </button>
+
+                      {isDone && (
+                        <div className="flex shrink-0 items-center text-emerald-700 dark:text-emerald-100">
+                          <CheckCircle2 className="h-4 w-4" />
+                        </div>
+                      )}
+                    </button>
+                  </SwipeableTaskRow>
                 );
               })}
             </div>
           )}
 
-          {flatTasks.length > 5 && (
-            <button
-              type="button"
-              onClick={() => navigate("/planning")}
-              className="relative mt-3 inline-flex min-h-11 w-full items-center justify-center rounded-2xl border border-soft bg-surface-muted px-4 text-xs font-black text-secondary transition active:scale-[0.98] lg:hidden"
-            >
-              Ver todos os movimentos
-              <CalendarDays className="ml-2 h-4 w-4" />
-            </button>
-          )}
         </section>
+        </div>
 
         {reports?.weekly && (
           <PeriodReportCard
@@ -868,6 +1062,43 @@ export default function Dashboard() {
         onClose={() => setIsNotificationsOpen(false)}
         onUnreadCountChange={(count) => setUnreadCount(Number(count) || 0)}
       />
+
+      {/* Retorno das ações por gesto. Fica acima da barra inferior e some em
+          6s — o "Desfazer" só existe enquanto o toast estiver na tela. */}
+      {swipeToast && (
+        <div className="pointer-events-none fixed inset-x-0 bottom-6 z-[120] flex justify-center px-4">
+          <div
+            role="status"
+            className={`pointer-events-auto flex max-w-full items-center gap-3 rounded-full border bg-surface-elevated py-2.5 pl-4 pr-2 text-sm font-semibold shadow-soft backdrop-blur-xl ${
+              swipeToast.tone === "done"
+                ? "border-emerald-300/25 text-emerald-700 dark:text-emerald-100"
+                : "border-rose-300/25 text-rose-700 dark:text-rose-200"
+            }`}
+          >
+            {swipeToast.tone === "done" ? (
+              <CheckCircle2 className="h-4 w-4 shrink-0" />
+            ) : (
+              <X className="h-4 w-4 shrink-0" />
+            )}
+
+            <span className="min-w-0 truncate">{swipeToast.message}</span>
+
+            {swipeToast.onUndo && (
+              <button
+                type="button"
+                onClick={() => {
+                  const undo = swipeToast.onUndo;
+                  setSwipeToast(null);
+                  undo?.();
+                }}
+                className="shrink-0 rounded-full border border-soft bg-surface-muted px-3 py-1.5 text-xs font-black text-secondary transition active:scale-[0.96]"
+              >
+                Desfazer
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </main>
   );
 }
@@ -876,6 +1107,200 @@ export default function Dashboard() {
 // Componentes internos do Dashboard
 // Cards visuais usados apenas nesta página.
 // ============================================================================
+
+// Linha da lista "Hoje" com ações por arraste: direita conclui, esquerda joga
+// para amanhã. O gesto só assume o controle depois de SWIPE_ENGAGE_PX na
+// horizontal — antes disso (e sempre que o movimento for mais vertical do que
+// horizontal) o toque segue rolando a lista, que no desktop tem scroll próprio.
+function SwipeableTaskRow({
+  onComplete,
+  onPostpone,
+  children,
+}: {
+  onComplete: () => void;
+  onPostpone: () => void;
+  children: ReactNode;
+}) {
+  const [offset, setOffset] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isLeaving, setIsLeaving] = useState(false);
+
+  const rowRef = useRef<HTMLDivElement | null>(null);
+  const startPoint = useRef<{ x: number; y: number } | null>(null);
+  const axis = useRef<"undecided" | "horizontal" | "vertical">("undecided");
+  // O clique que vem depois de um arraste abriria o Planejamento; este flag
+  // deixa o onClickCapture engolir esse clique.
+  const draggedRef = useRef(false);
+  const exitTimer = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (exitTimer.current) window.clearTimeout(exitTimer.current);
+    };
+  }, []);
+
+  // Resistência depois do gatilho: continua respondendo ao dedo, mas sem
+  // deslizar a linha para fora do card.
+  function damp(distance: number) {
+    const magnitude = Math.abs(distance);
+
+    const eased =
+      magnitude <= SWIPE_TRIGGER_PX
+        ? magnitude
+        : SWIPE_TRIGGER_PX + (magnitude - SWIPE_TRIGGER_PX) * 0.35;
+
+    return Math.sign(distance) * Math.min(eased, SWIPE_MAX_PX);
+  }
+
+  function leave(direction: 1 | -1, action: () => void) {
+    const width = rowRef.current?.offsetWidth ?? 320;
+
+    setIsLeaving(true);
+    setIsDragging(false);
+    setOffset(direction * (width + 48));
+
+    exitTimer.current = window.setTimeout(action, SWIPE_EXIT_MS);
+  }
+
+  function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (isLeaving) return;
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+
+    startPoint.current = { x: event.clientX, y: event.clientY };
+    axis.current = "undecided";
+    draggedRef.current = false;
+  }
+
+  function handlePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    const start = startPoint.current;
+    if (!start || isLeaving) return;
+
+    // Mouse solto fora da linha não dispara pointerup aqui; sem esta guarda o
+    // próximo movimento do cursor continuaria arrastando sem botão apertado.
+    if (event.pointerType === "mouse" && event.buttons === 0) {
+      startPoint.current = null;
+      axis.current = "undecided";
+      setIsDragging(false);
+      setOffset(0);
+      return;
+    }
+
+    const deltaX = event.clientX - start.x;
+    const deltaY = event.clientY - start.y;
+
+    if (axis.current === "undecided") {
+      // Rolagem vertical vence: abandona o gesto até o próximo toque.
+      if (Math.abs(deltaY) > SWIPE_ENGAGE_PX && Math.abs(deltaY) > Math.abs(deltaX)) {
+        axis.current = "vertical";
+        startPoint.current = null;
+        return;
+      }
+
+      if (Math.abs(deltaX) <= SWIPE_ENGAGE_PX) return;
+
+      axis.current = "horizontal";
+      draggedRef.current = true;
+      setIsDragging(true);
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
+
+    setOffset(damp(deltaX));
+  }
+
+  function handlePointerEnd() {
+    if (axis.current !== "horizontal" || isLeaving) {
+      startPoint.current = null;
+      axis.current = "undecided";
+      return;
+    }
+
+    startPoint.current = null;
+    axis.current = "undecided";
+    setIsDragging(false);
+
+    if (offset >= SWIPE_TRIGGER_PX) {
+      leave(1, onComplete);
+      return;
+    }
+
+    if (offset <= -SWIPE_TRIGGER_PX) {
+      leave(-1, onPostpone);
+      return;
+    }
+
+    setOffset(0); // não chegou ao gatilho: volta ao lugar
+  }
+
+  const progress = Math.min(1, Math.abs(offset) / SWIPE_TRIGGER_PX);
+  const isArmed = Math.abs(offset) >= SWIPE_TRIGGER_PX;
+  const direction = offset > 0 ? 1 : offset < 0 ? -1 : 0;
+
+  return (
+    <div
+      ref={rowRef}
+      // `touch-pan-y` entrega a rolagem vertical ao navegador e deixa só o eixo
+      // horizontal para o gesto.
+      className="relative touch-pan-y select-none overflow-hidden rounded-[1.45rem]"
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerEnd}
+      onPointerCancel={handlePointerEnd}
+      onClickCapture={(event) => {
+        if (!draggedRef.current) return;
+        event.preventDefault();
+        event.stopPropagation();
+        draggedRef.current = false;
+      }}
+    >
+      <div
+        aria-hidden
+        className={`absolute inset-0 flex items-center justify-between rounded-[1.45rem] px-4 text-xs font-black transition-colors ${
+          direction === 1
+            ? "bg-emerald-500/15"
+            : direction === -1
+            ? "bg-indigo-500/15"
+            : ""
+        }`}
+        style={{ opacity: direction === 0 ? 0 : 0.35 + progress * 0.65 }}
+      >
+        <span
+          className={`flex items-center gap-2 text-emerald-700 dark:text-emerald-100 ${
+            direction === 1 ? "" : "invisible"
+          }`}
+        >
+          <CheckCircle2
+            className={`h-5 w-5 transition-transform ${
+              isArmed ? "scale-110" : "scale-90"
+            }`}
+          />
+          Concluir
+        </span>
+
+        <span
+          className={`flex items-center gap-2 text-indigo-700 dark:text-indigo-200 ${
+            direction === -1 ? "" : "invisible"
+          }`}
+        >
+          Amanhã
+          <Clock3
+            className={`h-5 w-5 transition-transform ${
+              isArmed ? "scale-110" : "scale-90"
+            }`}
+          />
+        </span>
+      </div>
+
+      <div
+        className={`relative ${
+          isDragging ? "" : "transition-transform duration-200 ease-out"
+        }`}
+        style={{ transform: `translateX(${offset}px)` }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
 
 function DashboardGreetingSkeleton() {
   return (
