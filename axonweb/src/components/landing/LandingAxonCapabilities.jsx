@@ -74,7 +74,7 @@ const rightCapabilities = capabilities.slice(4);
 
 export default function LandingAxonCapabilities() {
   return (
-    <section className="relative overflow-hidden bg-white px-4 py-14 text-[#2d0850] sm:px-6 sm:py-18 lg:px-10 lg:py-24 xl:px-14 dark:bg-[#12001f] dark:text-white">
+    <section className="relative overflow-hidden bg-white px-4 py-14 text-[#2d0850] sm:px-6 sm:py-18 lg:px-10 lg:py-24 xl:px-14 dark:bg-[#08070d] dark:text-white">
       <CapabilitiesBackground />
 
       <div className="relative z-10 mx-auto max-w-[1120px]">
@@ -261,7 +261,7 @@ function MobileCapabilityCard({ item }) {
   return (
     <article
       data-capability-card
-      className="min-w-[76%] snap-center rounded-[1.45rem] border border-[#2d0850]/10 bg-white p-4 dark:border-white/10 dark:bg-white/[0.06]"
+      className="min-w-[76%] snap-center rounded-[1.45rem] border border-[#2d0850]/10 bg-white p-4 dark:border-white/10 dark:bg-[#11101a]"
     >
       <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-2xl border border-[#7b2cbf]/18 bg-[#7b2cbf]/10 text-[#7b2cbf] dark:border-white/10 dark:bg-white/10 dark:text-white">
         <Icon className="h-4.5 w-4.5" />

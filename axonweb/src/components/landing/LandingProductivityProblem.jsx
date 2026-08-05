@@ -42,7 +42,7 @@ const problemCards = [
 
 export default function LandingProductivityProblem() {
   return (
-    <section className="relative -mt-px overflow-hidden bg-[#fbf8ff] px-4 py-14 text-[#2d0850] sm:px-6 sm:py-18 lg:px-10 lg:py-24 xl:px-14 dark:bg-[#12001f] dark:text-white">
+    <section className="relative -mt-px overflow-hidden bg-[#fbf8ff] px-4 py-14 text-[#2d0850] sm:px-6 sm:py-18 lg:px-10 lg:py-24 xl:px-14 dark:bg-[#08070d] dark:text-white">
       <LightBackground />
 
       <div className="relative z-10 mx-auto max-w-[1120px]">
@@ -135,7 +135,7 @@ function ProblemCard({ card }) {
   const Icon = card.icon;
 
   return (
-    <article className="relative min-h-[13rem] min-w-[66%] snap-center overflow-hidden rounded-[1.45rem] border border-[#2d0850]/10 bg-white p-5 text-left sm:min-w-[17rem] md:min-w-0 dark:border-white/10 dark:bg-[#1c0a33]">
+    <article className="relative min-h-[13rem] min-w-[66%] snap-center overflow-hidden rounded-[1.45rem] border border-[#2d0850]/10 bg-white p-5 text-left sm:min-w-[17rem] md:min-w-0 dark:border-white/10 dark:bg-[#11101a]">
       <CornerAccents />
 
       <div className="relative z-10 flex h-full flex-col justify-center">
