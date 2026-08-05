@@ -161,24 +161,70 @@ def get_yesterday(
 @router.get("/history", response_model=list[DailyLogResponse])
 def get_history(
     days: int = Query(default=30, ge=7, le=90),
+    # Intervalo explícito, para gráficos que navegam por janelas passadas.
+    # Quando vem, manda em `days` — que só sabe olhar para trás a partir de hoje.
+    start: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     x_timezone: str | None = Header(default=None),
     current_user: dict = Depends(get_current_user),
 ):
     user_id  = current_user["id"]
     tz_name  = user_tz.resolve(user_id, x_timezone)
     today    = datetime.now(user_tz.zone(tz_name)).date()
-    since    = str(today - timedelta(days=days - 1))
+
+    query = (
+        supabase.table("daily_logs")
+        .select("*")
+        .eq("user_id", user_id)
+    )
+
+    if start and end:
+        query = query.gte("date", start).lte("date", end)
+    else:
+        query = query.gte("date", str(today - timedelta(days=days - 1)))
+
+    result = query.order("date", desc=False).execute()
+
+    return [_serialize(row) for row in (result.data or [])]
+
+
+@router.get("/week")
+def get_week(
+    # Semanas para trás: 0 = semana atual, 1 = anterior, e assim por diante.
+    offset: int = Query(default=0, ge=0, le=520),
+    x_timezone: str | None = Header(default=None),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Registros de uma semana do calendário (domingo→sábado), para o gráfico de
+    sono navegável. Devolve também os limites da semana: o frontend precisa
+    deles para montar os 7 dias, inclusive os que não têm registro — e a
+    semana é calculada aqui, no fuso do usuário, igual à do card de tarefas.
+    """
+    user_id = current_user["id"]
+    tz_name = user_tz.resolve(user_id, x_timezone)
+    today = datetime.now(user_tz.zone(tz_name)).date()
+
+    # Domingo→sábado (weekday() é 0=segunda; +1 % 7 = dias desde o domingo).
+    start = today - timedelta(days=(today.weekday() + 1) % 7, weeks=offset)
+    end = start + timedelta(days=6)
 
     result = (
         supabase.table("daily_logs")
         .select("*")
         .eq("user_id", user_id)
-        .gte("date", since)
+        .gte("date", str(start))
+        .lte("date", str(end))
         .order("date", desc=False)
         .execute()
     )
 
-    return [_serialize(row) for row in (result.data or [])]
+    return {
+        "start": str(start),
+        "end": str(end),
+        "offset": offset,
+        "logs": [_serialize(row) for row in (result.data or [])],
+    }
 
 
 # ---------------------------------------------------------------------------

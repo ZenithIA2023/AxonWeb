@@ -32,6 +32,11 @@ import { ScrollArea } from "../components/ui/ScrollArea";
 
 const NOTIFICATIONS_PAGE_SIZE = 10;
 
+// Esperas (ms) entre as tentativas da carga inicial do dashboard. Em dev o
+// front sobe antes do uvicorn e serviços hospedados podem estar em cold
+// start, então a primeira chamada costuma pegar o backend ainda de pé.
+const DASHBOARD_RETRY_DELAYS_MS = [1500, 4000];
+
 // ============================================================================
 // Tipos locais
 // Props e aliases usados apenas na montagem visual do Dashboard.
@@ -53,7 +58,12 @@ export default function Dashboard() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [data, setData] = useState<DashboardData | null>(null);
   const [reports, setReports] = useState<api.DashboardReports | null>(null);
-  const [loading, setLoading] = useState(true);
+  // Falha ao carregar o dashboard. Sem este estado, erro e carregamento eram
+  // indistinguíveis (ambos deixam `data` nulo) e a tela caía nos fallbacks,
+  // exibindo perfil e percentuais genéricos como se fossem do usuário.
+  // (Não há mais um `loading` aqui: a ausência de `data` já significa
+  // "ainda não tenho o que mostrar", e `loadError` diz se foi falha.)
+  const [loadError, setLoadError] = useState(false);
   const [keyTask, setKeyTask] = useState<Task | null>(null);
   const [subtasksMap, setSubtasksMap] = useState<Record<string, Subtask[]>>({});
   const [showNextBlock, setShowNextBlock] = useState(false);
@@ -138,6 +148,36 @@ export default function Dashboard() {
   }, []);
 
   // --------------------------------------------------------------------------
+  // Carga do dashboard
+  // `attempt < 0` (padrão) = recarga de rotina — intervalo de 30min ou volta
+  // à aba: falha direto, sem insistir. `attempt >= 0` = carga inicial, que
+  // retenta conforme DASHBOARD_RETRY_DELAYS_MS antes de assumir o erro.
+  // --------------------------------------------------------------------------
+  const loadDashboard = useCallback((attempt = -1) => {
+    setLoadError(false);
+
+    api
+      .getDashboard()
+      .then(setData)
+      .catch(() => {
+        const next = attempt + 1;
+
+        if (attempt >= 0 && next <= DASHBOARD_RETRY_DELAYS_MS.length) {
+          window.setTimeout(
+            () => loadDashboard(next),
+            DASHBOARD_RETRY_DELAYS_MS[next - 1]
+          );
+          return;
+        }
+
+        // Sem dados: a tela mostra o esqueleto e o aviso de falha, nunca os
+        // valores de fallback.
+        setData(null);
+        setLoadError(true);
+      });
+  }, []);
+
+  // --------------------------------------------------------------------------
   // Carregamento principal
   // Busca dashboard, tarefa-chave, revisão diária, subtarefas e notificações.
   // Também atualiza dados ao retornar para a aba e a cada 30 minutos.
@@ -149,14 +189,6 @@ export default function Dashboard() {
     }
 
     const todayISO = new Date().toISOString().slice(0, 10);
-
-    const loadDashboard = () => {
-      api
-        .getDashboard()
-        .then(setData)
-        .catch(() => setData(null))
-        .finally(() => setLoading(false));
-    };
 
     const loadKeyTask = () => {
       api
@@ -190,7 +222,7 @@ export default function Dashboard() {
         });
     };
 
-    loadDashboard();
+    loadDashboard(0); // só a carga inicial retenta (backend pode estar subindo)
     loadDailyLog();
     loadReports();
     loadKeyTask();
@@ -223,7 +255,7 @@ export default function Dashboard() {
       window.clearInterval(notifInterval);
       document.removeEventListener("visibilitychange", handleVisibility);
     };
-  }, [navigate, refreshUnreadCount, loadSubtasks]);
+  }, [navigate, refreshUnreadCount, loadSubtasks, loadDashboard]);
 
   // --------------------------------------------------------------------------
   // Abertura automática da revisão diária
@@ -347,7 +379,11 @@ export default function Dashboard() {
       ? "Sua melhor janela de foco está ativa agora."
       : "Sua próxima janela produtiva está chegando.";
 
-  const isDashboardBooting = loading && !data;
+  // Sem dados = esqueleto, tanto carregando quanto após falha. Antes era
+  // `loading && !data`: numa falha o loading virava false, a expressão dava
+  // false e a tela renderizava os fallbacks acima ("Perfil Intermediário",
+  // "Entre 9h e 15h", energia/foco fixos) como se fossem dados reais.
+  const isDashboardBooting = !data;
 
   const flatTasks = dayBlocks.flatMap((block) => block.tasks);
 
@@ -421,6 +457,26 @@ export default function Dashboard() {
             </div>
           }
         />
+
+        {loadError && (
+          <section className="mt-5 rounded-[1.75rem] border border-amber-300/30 bg-amber-400/10 p-4 lg:p-5">
+            <p className="text-sm font-black text-amber-700 dark:text-amber-200">
+              Não foi possível carregar seu painel
+            </p>
+            <p className="mt-1.5 text-xs leading-5 text-muted">
+              O app não conseguiu falar com o servidor. Seus números ficam
+              ocultos para não mostrar informação incorreta.
+            </p>
+
+            <button
+              type="button"
+              onClick={() => loadDashboard(0)}
+              className="mt-3 inline-flex min-h-10 items-center justify-center rounded-2xl border border-soft bg-surface-elevated px-4 text-xs font-black text-secondary transition active:scale-[0.97]"
+            >
+              Tentar novamente
+            </button>
+          </section>
+        )}
 
         {isDashboardBooting ? (
           <DashboardGreetingSkeleton />
@@ -778,11 +834,13 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Direto de `data` (props opcionais): sem dados o Sidebar omite, em vez
+          de exibir o perfil genérico como se fosse o do usuário. */}
       <Sidebar
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
-        chronotypeLabel={chronotypeLabel}
-        energyPeak={energyPeak}
+        chronotypeLabel={data?.chronotype_label}
+        energyPeak={data?.energy_peak}
       />
 
       <DayReview

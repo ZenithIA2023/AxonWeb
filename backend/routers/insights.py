@@ -18,6 +18,21 @@ _WEEKDAY_FULL = [
 
 _PERIOD_DAYS = {"week": 7, "month": 30}
 
+_MONTH_ABBR = [
+    "Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
+    "Jul", "Ago", "Set", "Out", "Nov", "Dez",
+]
+_MONTH_FULL = [
+    "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+    "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
+]
+
+
+def _last_day_of_month(day: date) -> date:
+    """Último dia do mês de `day` (chega ao dia 1 do mês seguinte e volta um)."""
+    first_next = (day.replace(day=28) + timedelta(days=4)).replace(day=1)
+    return first_next - timedelta(days=1)
+
 
 def _local_date(ts: str | None, tz) -> date | None:
     """Converte um timestamptz ISO (UTC) para a data local do usuário."""
@@ -32,10 +47,19 @@ def _local_date(ts: str | None, tz) -> date | None:
 
 
 def build_task_metrics(
-    tasks: list[dict], tz, today: date, days: int, snapshots: dict | None = None
+    tasks: list[dict],
+    tz,
+    today: date,
+    days: int,
+    snapshots: dict | None = None,
+    start: date | None = None,
 ) -> dict:
     """
     Agrega tarefas em métricas diárias. Função pura — sem I/O — para testar.
+
+    `start` é o primeiro dia da janela; omitido, a janela são os `days` dias
+    que terminam hoje (comportamento histórico). Com ele dá para pedir uma
+    semana passada ou um ano inteiro sem que a janela dependa de "hoje".
 
     Para dias PASSADOS usa o snapshot congelado (daily_task_stats) quando
     disponível — sem ele a % daria falso 100%, porque o carry-forward tira as
@@ -48,7 +72,8 @@ def build_task_metrics(
     """
     snapshots = snapshots or {}
     now = datetime.now(tz)
-    window = [today - timedelta(days=i) for i in range(days - 1, -1, -1)]
+    first = start if start is not None else today - timedelta(days=days - 1)
+    window = [first + timedelta(days=i) for i in range(days)]
     buckets = {
         d: {"completed": 0, "pending": 0, "carried_forward": 0} for d in window
     }
@@ -160,41 +185,41 @@ def build_task_metrics(
     }
 
 
-@router.get("/tasks")
-def get_task_insights(
-    period: str = Query(default="week", pattern="^(week|month)$"),
-    x_timezone: str | None = Header(default=None),
-    current_user: dict = Depends(get_current_user),
-):
-    user_id = current_user["id"]
-    days = _PERIOD_DAYS[period]
-    tz = user_tz.zone(user_tz.resolve(user_id, x_timezone))
-    today = datetime.now(tz).date()
-    since = str(today - timedelta(days=days - 1))
-    since_iso = f"{since}T00:00:00+00:00"
+# Colunas usadas nas agregações de tarefas. task_type/start_time/end_time/
+# end_date entram para o cálculo ao vivo de eventos (contam como concluídos
+# quando o horário já passou — ver build_task_metrics).
+_TASK_COLS = (
+    "id, status, task_type, scheduled_date, end_date, "
+    "start_time, end_time, completed_at, carry_count"
+)
 
-    # Concluídas na janela (por completed_at) + pendentes agendadas na janela.
-    # task_type/start_time/end_time/end_date entram para o cálculo ao vivo de
-    # eventos (contam como concluídos quando o horário já passou — ver
-    # build_task_metrics).
-    _cols = (
-        "id, status, task_type, scheduled_date, end_date, "
-        "start_time, end_time, completed_at, carry_count"
-    )
+
+def _fetch_tasks_in_window(user_id: str, start: date, end: date) -> list[dict]:
+    """
+    Tarefas relevantes para a janela [start, end]: concluídas por completed_at
+    (timestamptz em UTC) + pendentes agendadas no intervalo.
+
+    A margem de 1 dia nos limites de completed_at existe porque a coluna é UTC
+    e a janela é em data LOCAL do usuário — em fusos distantes o instante de
+    conclusão pode cair no dia UTC vizinho. build_task_metrics converte para a
+    data local e descarta o que sobrar.
+    """
     completed = (
         supabase.table("tasks")
-        .select(_cols)
+        .select(_TASK_COLS)
         .eq("user_id", user_id)
         .eq("status", "done")
-        .gte("completed_at", since_iso)
+        .gte("completed_at", f"{start - timedelta(days=1)}T00:00:00+00:00")
+        .lt("completed_at", f"{end + timedelta(days=2)}T00:00:00+00:00")
         .execute()
     )
     scheduled = (
         supabase.table("tasks")
-        .select(_cols)
+        .select(_TASK_COLS)
         .eq("user_id", user_id)
         .neq("status", "done")
-        .gte("scheduled_date", since)
+        .gte("scheduled_date", str(start))
+        .lte("scheduled_date", str(end))
         .execute()
     )
 
@@ -203,15 +228,156 @@ def get_task_insights(
     for row in (scheduled.data or []):
         merged.setdefault(row["id"], row)
 
+    return list(merged.values())
+
+
+@router.get("/tasks")
+def get_task_insights(
+    period: str = Query(default="week", pattern="^(week|month)$"),
+    # Quantos períodos para trás: 0 = atual, 1 = anterior, e assim por diante.
+    # É o que permite navegar pelas semanas passadas no card de tarefas.
+    offset: int = Query(default=0, ge=0, le=520),
+    x_timezone: str | None = Header(default=None),
+    current_user: dict = Depends(get_current_user),
+):
+    user_id = current_user["id"]
+    days = _PERIOD_DAYS[period]
+    tz = user_tz.zone(user_tz.resolve(user_id, x_timezone))
+    today = datetime.now(tz).date()
+
+    if period == "week":
+        # Semana do calendário (domingo→sábado): navegar para trás precisa de
+        # semanas fixas, senão cada passo devolveria uma janela deslizante
+        # diferente e os rótulos de dia da semana dançariam.
+        # weekday() é 0=segunda: +1 % 7 dá quantos dias se passaram do domingo.
+        start = today - timedelta(days=(today.weekday() + 1) % 7, weeks=offset)
+        end = start + timedelta(days=6)
+    else:
+        # Mês do calendário: dia 1 até o último dia daquele mês. Antes era uma
+        # janela de 30 dias terminando hoje, que começava e terminava no meio
+        # de dois meses diferentes.
+        month_anchor = today.replace(day=1)
+        for _ in range(offset):
+            month_anchor = (month_anchor - timedelta(days=1)).replace(day=1)
+
+        start = month_anchor
+        end = _last_day_of_month(month_anchor)
+        days = (end - start).days + 1
+
+    tasks = _fetch_tasks_in_window(user_id, start, end)
+
     # Dias passados vêm dos snapshots congelados (evita falso 100%).
     snapshots = {
         s["date"]: s
-        for s in daily_stats_service.get_range(user_id, since, str(today))
+        for s in daily_stats_service.get_range(user_id, str(start), str(end))
     }
 
-    result = build_task_metrics(list(merged.values()), tz, today, days, snapshots)
+    result = build_task_metrics(tasks, tz, today, days, snapshots, start=start)
     result["period"] = period
+    result["offset"] = offset
+    result["start"] = str(start)
+    result["end"] = str(end)
     return result
+
+
+@router.get("/tasks/months")
+def get_task_months(
+    year: int | None = Query(default=None, ge=2000, le=2100),
+    x_timezone: str | None = Header(default=None),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Tarefas concluídas mês a mês dentro de um ano — visão "Mês" do card de
+    tarefas. Cada mês soma os dias daquele mês (snapshots congelados para o
+    passado, cálculo ao vivo para hoje).
+    """
+    user_id = current_user["id"]
+    tz = user_tz.zone(user_tz.resolve(user_id, x_timezone))
+    today = datetime.now(tz).date()
+    year = year or today.year
+
+    months = [
+        {
+            "month": m + 1,
+            "label": _MONTH_ABBR[m],
+            "completed": 0,
+            "total": 0,
+            "completion_rate": 0,
+        }
+        for m in range(12)
+    ]
+
+    # Ano futuro: nada a agregar, mas a resposta mantém o formato para o
+    # frontend não precisar de um caminho especial.
+    if year > today.year:
+        return {
+            "year": year,
+            "months": months,
+            "summary": {
+                "total_completed": 0,
+                "avg_completion_rate": 0,
+                "best_month": None,
+            },
+        }
+
+    start = date(year, 1, 1)
+    # No ano corrente a janela para em hoje: dias futuros não têm histórico.
+    end = today if year == today.year else date(year, 12, 31)
+
+    # O ano inteiro sai dos snapshots diários (uma linha por dia, ~365 no
+    # máximo). Buscar as TAREFAS do ano todo esbarraria no teto de linhas do
+    # Supabase e traria muito mais dado do que o gráfico precisa.
+    snapshots = {
+        s["date"]: s
+        for s in daily_stats_service.get_range(user_id, str(start), str(end))
+    }
+
+    # O mês corrente ainda não tem snapshot de hoje (e pode ter dias sem
+    # snapshot): esse pedaço é recalculado ao vivo, como no card semanal.
+    live_start = date(today.year, today.month, 1) if year == today.year else None
+
+    for iso, snap in snapshots.items():
+        idx = int(iso[5:7]) - 1
+        if live_start is not None and idx == today.month - 1:
+            continue
+        months[idx]["completed"] += snap["completed_items"]
+        months[idx]["total"] += snap["total"]
+
+    if live_start is not None:
+        tasks = _fetch_tasks_in_window(user_id, live_start, today)
+        daily = build_task_metrics(
+            tasks,
+            tz,
+            today,
+            (today - live_start).days + 1,
+            snapshots,
+            start=live_start,
+        )
+        idx = today.month - 1
+        for day in daily["days"]:
+            months[idx]["completed"] += day["completed"]
+            months[idx]["total"] += day["total"]
+
+    rate_sum = 0
+    rate_count = 0
+    for m in months:
+        if m["total"]:
+            m["completion_rate"] = round(m["completed"] / m["total"] * 100)
+            rate_sum += m["completion_rate"]
+            rate_count += 1
+
+    best_idx = max(range(12), key=lambda i: months[i]["completed"])
+    has_best = months[best_idx]["completed"] > 0
+
+    return {
+        "year": year,
+        "months": months,
+        "summary": {
+            "total_completed": sum(m["completed"] for m in months),
+            "avg_completion_rate": round(rate_sum / rate_count) if rate_count else 0,
+            "best_month": _MONTH_FULL[best_idx] if has_best else None,
+        },
+    }
 
 
 @router.get("/patterns")
