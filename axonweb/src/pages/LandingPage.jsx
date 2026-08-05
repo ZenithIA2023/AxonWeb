@@ -10,7 +10,6 @@ import LandingAxonCapabilities from "../components/landing/LandingAxonCapabiliti
 import LandingAxonEvolution from "../components/landing/LandingAxonEvolution";
 import LandingPersonalExperience from "../components/landing/LandingPersonalExperience";
 import LandingFinalCTA from "../components/landing/LandingFinalCTA";
-import LandingThemeSwitch from "../components/landing/LandingThemeSwitch";
 
 import axonHappy from "../assets/axon/axon-happy.png";
 import brainDecoration from "../assets/decorations/brain.svg";
@@ -72,7 +71,7 @@ export default function LandingPage() {
   }, [navigate]);
 
   return (
-    <main className="min-h-screen overflow-hidden bg-[#fbf8ff] text-[#2d0850] dark:bg-[#12001f] dark:text-white">
+    <main className="min-h-screen overflow-hidden bg-[#fbf8ff] text-[#2d0850] dark:bg-[#08070d] dark:text-white">
       <LandingHero />
       <LandingIntroBlock />
       <LandingProductivityProblem />
@@ -81,7 +80,6 @@ export default function LandingPage() {
       <LandingPersonalExperience />
       <LandingFinalCTA />
 
-      <LandingThemeSwitch />
     </main>
   );
 }

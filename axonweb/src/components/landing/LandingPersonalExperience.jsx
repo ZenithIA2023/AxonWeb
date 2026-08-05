@@ -6,7 +6,7 @@
 
 export default function LandingPersonalExperience() {
   return (
-    <section className="relative overflow-hidden bg-[#fbf8ff] px-4 py-14 text-[#2d0850] sm:px-6 sm:py-18 lg:px-10 lg:py-24 xl:px-14 dark:bg-[#12001f] dark:text-white">
+    <section className="relative overflow-hidden bg-[#fbf8ff] px-4 py-14 text-[#2d0850] sm:px-6 sm:py-18 lg:px-10 lg:py-24 xl:px-14 dark:bg-[#08070d] dark:text-white">
       <ExperienceBackground />
 
       <div className="relative z-10 mx-auto max-w-[1120px]">
