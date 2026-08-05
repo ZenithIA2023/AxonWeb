@@ -1024,6 +1024,27 @@ export function getDailyLogHistory(days = 30) {
   return request<DailyLog[]>(`/daily-log/history?days=${days}`);
 }
 
+// Registros de um intervalo fechado — usado pelos gráficos que navegam por
+// janelas passadas, onde "últimos N dias" não serve.
+export function getDailyLogRange(start: string, end: string) {
+  return request<DailyLog[]>(
+    `/daily-log/history?start=${start}&end=${end}`
+  );
+}
+
+export interface DailyLogWeek {
+  start: string; // domingo da semana, "YYYY-MM-DD"
+  end: string; // domingo
+  offset: number;
+  logs: DailyLog[]; // só os dias que têm registro
+}
+
+// Semana do calendário (dom→sáb) para o gráfico de sono navegável.
+// `offset` volta no tempo: 0 = semana atual, 1 = anterior, ...
+export function getDailyLogWeek(offset = 0) {
+  return request<DailyLogWeek>(`/daily-log/week?offset=${offset}`);
+}
+
 export function saveDailyLog(body: DailyLogInput) {
   return request<DailyLog>("/daily-log/", {
     method: "POST",
@@ -1055,13 +1076,50 @@ export interface TaskInsightSummary {
 
 export interface TaskInsights {
   period: "week" | "month";
+  // Opcionais de propósito: backends anteriores à navegação por semanas não
+  // enviam estes campos. Quem consome deve funcionar sem eles.
+  offset?: number; // 0 = período atual, 1 = anterior, ...
+  start?: string; // "YYYY-MM-DD"
+  end?: string;
   days: TaskInsightDay[];
   summary: TaskInsightSummary;
 }
 
 // Usado no Insights para montar gráficos e resumo de conclusão de tarefas.
-export function getTaskInsights(period: "week" | "month" = "week") {
-  return request<TaskInsights>(`/insights/tasks?period=${period}`);
+// `offset` volta no tempo: em "week" são semanas do calendário (dom→sáb),
+// em "month" janelas de 30 dias.
+export function getTaskInsights(
+  period: "week" | "month" = "week",
+  offset = 0
+) {
+  return request<TaskInsights>(
+    `/insights/tasks?period=${period}&offset=${offset}`
+  );
+}
+
+export interface TaskInsightMonth {
+  month: number; // 1–12
+  label: string; // "Jan", "Fev", ...
+  completed: number;
+  total: number;
+  completion_rate: number; // 0–100
+}
+
+export interface TaskMonths {
+  year: number;
+  months: TaskInsightMonth[];
+  summary: {
+    total_completed: number;
+    avg_completion_rate: number;
+    best_month: string | null;
+  };
+}
+
+// Visão anual do card de tarefas: os 12 meses do ano pedido.
+export function getTaskMonths(year?: number) {
+  return request<TaskMonths>(
+    `/insights/tasks/months${year ? `?year=${year}` : ""}`
+  );
 }
 
 export interface PatternInsight {
