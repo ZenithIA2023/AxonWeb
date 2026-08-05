@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import {
   CalendarDays,
@@ -218,10 +225,10 @@ function weekDaysOf(selected: Date): Date[] {
 
 type View = "agenda" | "rotinas" | "objetivos";
 
-const TABS: { key: View; label: string; icon: typeof CalendarDays }[] = [
-  { key: "agenda", label: "Agenda", icon: CalendarDays },
-  { key: "rotinas", label: "Rotinas", icon: Repeat },
-  { key: "objetivos", label: "Objetivos", icon: Target },
+const TABS: { key: View; label: string }[] = [
+  { key: "rotinas", label: "Rotinas" },
+  { key: "agenda", label: "Agenda" },
+  { key: "objetivos", label: "Objetivos" },
 ];
 
 // ===========================================================================
@@ -252,7 +259,9 @@ export default function Planning({
     <main className="relative min-h-screen overflow-hidden bg-app text-primary">
       <AppBackground />
 
-      <div className="relative z-10 min-h-screen px-4 pb-6 pt-5">
+      {/* Mesma medida da tela de Insights: px-1 no telefone (a margem externa
+          era espaço morto) e coluna centrada no desktop. */}
+      <div className="relative z-10 mx-auto min-h-screen w-full max-w-[430px] px-1 pb-6 pt-5 lg:max-w-[1120px] lg:px-8 lg:pt-7">
         <PageHeader
           title="Planejamento"
           subtitle="Agenda, rotinas e objetivos"
@@ -260,23 +269,22 @@ export default function Planning({
           onMenuClick={() => setIsSidebarOpen(true)}
         />
 
-        {/* Seletor de visão */}
-        <div className="mb-5 flex rounded-2xl border border-soft bg-surface-elevated p-1 shadow-card backdrop-blur-2xl">
+        {/* Seletor de visão. No desktop fica centrado e com largura limitada:
+            esticado nos 1120px da coluna, as pílulas ficariam enormes. */}
+        <div className="mb-4 flex rounded-full border border-soft bg-surface-elevated p-1.5 shadow-card backdrop-blur-2xl lg:mx-auto lg:max-w-xl">
           {TABS.map((tab) => {
-            const Icon = tab.icon;
             const active = view === tab.key;
             return (
               <button
                 key={tab.key}
                 type="button"
                 onClick={() => setView(tab.key)}
-                className={`flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-xl text-xs font-semibold transition active:scale-[0.98] ${
+                className={`min-h-10 flex-1 rounded-full text-sm font-semibold transition active:scale-[0.98] ${
                   active
                     ? "bg-[var(--accent-strong)] text-white shadow-card"
                     : "text-muted"
                 }`}
               >
-                <Icon className="h-3.5 w-3.5" />
                 {tab.label}
               </button>
             );
@@ -401,33 +409,6 @@ function AgendaView({ embedded = false }: { embedded?: boolean } = {}) {
         await loadDailyStats();
       });
   }, [loadTasks, loadSubtasks]);
-
-  // Datas com tarefas/eventos, usadas para desenhar indicadores no calendário.
-  const taskDates = useMemo(() => {
-    const dates = new Set<string>();
-
-    tasks.forEach((task) => {
-      if (!task.scheduled_date) return;
-
-      const endDate = getTaskEndDate(task);
-
-      if (task.task_type === "event" && endDate) {
-        const current = new Date(`${task.scheduled_date}T00:00:00`);
-        const last = new Date(`${endDate}T00:00:00`);
-
-        while (current <= last) {
-          dates.add(toISODate(current));
-          current.setDate(current.getDate() + 1);
-        }
-
-        return;
-      }
-
-      dates.add(task.scheduled_date);
-    });
-
-    return dates;
-  }, [tasks]);
 
   // Dados derivados do dia selecionado.
   const selectedIso = toISODate(selectedDate);
@@ -675,67 +656,18 @@ function AgendaView({ embedded = false }: { embedded?: boolean } = {}) {
           </div>
         )}
 
-        <section className="mb-4">
-          <div className="relative overflow-hidden rounded-[2rem] border border-soft bg-surface-elevated p-5 text-primary shadow-soft backdrop-blur-2xl">
-            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,var(--accent-soft),transparent_48%)]" />
-            <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.18),transparent_40%)] opacity-60 dark:opacity-30" />
-
-            <div className="relative">
-              <div className="mb-4">
-                <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-accent-soft bg-accent-soft px-3 py-1.5 text-xs font-medium text-accent">
-                  <Sparkles className="h-3.5 w-3.5" />
-                  Hoje
-                </div>
-
-                <h1 className="text-[1.8rem] font-semibold leading-[1.02] tracking-[-0.055em] text-primary">
-                  {actionable.length === 0
-                    ? "Seu plano começa aqui."
-                    : "Seu plano está em movimento."}
-                </h1>
-
-                <p className="mt-2 text-sm leading-6 text-muted">
-                  {actionable.length === 0
-                    ? "Nenhuma tarefa ainda — crie pela conversa com o Axon ou no botão +."
-                    : `${completedItems} de ${totalItems} itens concluídos.`}
-                </p>
-              </div>
-
-              <div className="flex flex-col items-center">
-                <CircularProgress value={progress} />
-
-                <div className="mt-4 grid w-full grid-cols-3 gap-2 rounded-[1.4rem] border border-soft bg-surface-muted p-2">
-                  <LegendItem color="bg-white/30" label="A fazer" />
-                  <LegendItem color="bg-purple-300" label="Em andamento" />
-                  <LegendItem color="bg-emerald-300" label="Concluído" />
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="mb-4 rounded-[2rem] border border-soft bg-surface-elevated p-4 text-primary shadow-card backdrop-blur-2xl">
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-semibold text-primary">
-                {calendarSetupChoice ? "Calendário" : "Configurar calendário"}
-              </p>
-              <p className="mt-1 text-xs text-muted">
-                {calendarSetupChoice
-                  ? "Mês, semana e blocos do dia"
-                  : "Escolha como deseja usar sua agenda no Axon"}
-              </p>
-            </div>
-
-            {calendarSetupChoice && (
-              <button
-                type="button"
-                onClick={() => setIsCreateModalOpen(true)}
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[var(--accent-strong)] text-white shadow-card transition active:scale-[0.96]"
-                aria-label="Criar novo item"
-              >
-                <Plus className="h-5 w-5" />
-              </button>
-            )}
+        {/* px-2 (em vez de p-4): com a coluna da página em px-1, o conteúdo
+            fica próximo da borda do cartão e ganha largura útil. */}
+        <section className="rounded-[2rem] border border-soft bg-surface-elevated px-2 py-4 text-primary shadow-card backdrop-blur-2xl lg:px-6 lg:py-6">
+          <div className="mb-4 px-1">
+            <h1 className="text-[1.75rem] font-bold leading-[1.05] tracking-[-0.03em] text-primary">
+              Calendário Diário
+            </h1>
+            <p className="mt-1 text-sm text-muted">
+              {calendarSetupChoice
+                ? "Suas tarefas, eventos e rotinas do dia de hoje"
+                : "Escolha como deseja usar sua agenda no Axon"}
+            </p>
           </div>
 
           {!calendarSetupChoice ? (
@@ -765,129 +697,156 @@ function AgendaView({ embedded = false }: { embedded?: boolean } = {}) {
                 </div>
               )}
 
-              <div className="mb-4 flex rounded-2xl border border-soft bg-surface-muted p-1">
-                <button
-                  type="button"
-                  onClick={() => setViewMode("month")}
-                  className={`min-h-10 flex-1 rounded-xl text-xs font-semibold transition active:scale-[0.98] ${
-                    viewMode === "month"
-                      ? "bg-[var(--accent-strong)] text-white shadow-card"
-                      : "text-muted"
-                  }`}
-                >
-                  Mês
-                </button>
+              {/* No desktop a tela vira duas colunas: calendário à esquerda e
+                  a lista do dia à direita, no lugar da pilha única do celular. */}
+              <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(360px,1fr)] lg:items-start lg:gap-7">
+                <div className="lg:min-w-0">
+                  <div className="flex rounded-full border border-soft bg-surface-muted p-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setViewMode("month")}
+                      className={`min-h-10 flex-1 rounded-full text-sm font-semibold transition active:scale-[0.98] ${
+                        viewMode === "month"
+                          ? "bg-[var(--accent-strong)] text-white shadow-card"
+                          : "text-muted"
+                      }`}
+                    >
+                      Mês
+                    </button>
 
-                <button
-                  type="button"
-                  onClick={() => setViewMode("week")}
-                  className={`min-h-10 flex-1 rounded-xl text-xs font-semibold transition active:scale-[0.98] ${
-                    viewMode === "week"
-                      ? "bg-[var(--accent-strong)] text-white shadow-card"
-                      : "text-muted"
-                  }`}
-                >
-                  Dia/Semana
-                </button>
-              </div>
-
-              {viewMode === "month" ? (
-                <MonthCalendar
-                  selectedDate={selectedDate}
-                  onSelect={setSelectedDate}
-                  tasks={tasks}
-                />
-              ) : (
-                <>
-                  <WeekCalendar
-                    selectedDate={selectedDate}
-                    onSelect={setSelectedDate}
-                    taskDates={taskDates}
-                  />
-
-                  <div className="mt-5">
-                    {/* Chip da fila — sempre visível quando há tarefas sem data */}
-                    {undatedTasks.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => setIsQueueOpen(true)}
-                        className="mb-4 flex w-full items-center gap-3 rounded-2xl border border-indigo-300/25 bg-indigo-500/10 px-4 py-3 text-left transition active:scale-[0.98]"
-                      >
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-indigo-500/15 text-indigo-700 dark:text-indigo-200">
-                          <ListTodo className="h-4 w-4" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-semibold text-indigo-700 dark:text-indigo-100">Fila de tarefas</p>
-                          <p className="text-xs text-indigo-700/55 dark:text-indigo-200/55">
-                            {undatedTasks.length} {undatedTasks.length === 1 ? "tarefa sem data definida" : "tarefas sem data definida"}
-                          </p>
-                        </div>
-                        <span className="flex h-6 min-w-[1.5rem] items-center justify-center rounded-full bg-indigo-500 px-1.5 text-xs font-bold text-white">
-                          {undatedTasks.length}
-                        </span>
-                      </button>
-                    )}
-
-                    {loading ? (
-                      <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Carregando tarefas…
-                      </div>
-                    ) : error ? (
-                      <div className="rounded-2xl border border-rose-300/25 bg-rose-500/10 p-4 text-sm text-rose-700 dark:text-rose-100">
-                        {error}
-                      </div>
-                    ) : dayTasks.length === 0 && undatedTasks.length === 0 ? (
-                      <EmptyState
-                        icon={ListTodo}
-                        title="Nenhuma tarefa neste dia"
-                        description="Converse com o Axon para ele organizar sua rotina, ou crie manualmente."
-                        actionLabel="Criar tarefa"
-                        onAction={() => setIsCreateModalOpen(true)}
-                      />
-                    ) : dayTasks.length === 0 ? (
-                      <EmptyState title="Nenhuma tarefa neste dia" />
-                    ) : (
-                      <div className="space-y-5">
-                        {dayTasks.map((task) => (
-                          <TimelineItem
-                            key={task.id}
-                            task={task}
-                            selectedIso={selectedIso}
-                            subtasks={subtasksMap[task.id] ?? []}
-                            onToggle={handleToggleDone}
-                            onToggleKey={handleToggleKey}
-                            onEdit={handleEdit}
-                            onDelete={handleDelete}
-                            onToggleSubtask={handleToggleSubtask}
-                            onDeleteSubtask={handleDeleteSubtask}
-                            onSubtaskChange={loadSubtasks}
-                          />
-                        ))}
-                      </div>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => setViewMode("week")}
+                      className={`min-h-10 flex-1 rounded-full text-sm font-semibold transition active:scale-[0.98] ${
+                        viewMode === "week"
+                          ? "bg-[var(--accent-strong)] text-white shadow-card"
+                          : "text-muted"
+                      }`}
+                    >
+                      Dia/Semana
+                    </button>
                   </div>
-                </>
-              )}
+
+                  {/* Resumo e anel do dia selecionado: comuns aos dois modos. */}
+                  <p className="mt-5 text-center text-sm text-muted">
+                    <span className="font-semibold text-primary">
+                      {completedItems} de {totalItems}
+                    </span>{" "}
+                    {totalItems === 1
+                      ? "tarefa concluída"
+                      : "tarefas concluídas"}
+                  </p>
+
+                  <div className="mt-4 flex justify-center">
+                    <CircularProgress value={progress} />
+                  </div>
+
+                  {viewMode === "week" && (
+                    <div className="mt-6">
+                      <WeekCalendar
+                        selectedDate={selectedDate}
+                        onSelect={setSelectedDate}
+                        tasks={tasks}
+                      />
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => setIsCreateModalOpen(true)}
+                    className="mt-6 flex min-h-10 w-full items-center justify-center rounded-full border border-[var(--accent)] bg-accent-muted text-sm font-bold text-accent transition active:scale-[0.98]"
+                  >
+                    + Nova tarefa
+                  </button>
+
+                  {viewMode === "month" && (
+                    <div className="mt-6">
+                      <MonthCalendar
+                        selectedDate={selectedDate}
+                        onSelect={setSelectedDate}
+                        tasks={tasks}
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* No celular a lista aparece só na visão de semana; no desktop
+                    ela acompanha os dois modos, ocupando a coluna livre. */}
+                <div
+                  className={`mt-6 lg:mt-0 lg:min-w-0 ${
+                    viewMode === "week" ? "" : "hidden lg:block"
+                  }`}
+                >
+                  {/* Chip da fila — sempre visível quando há tarefas sem data */}
+                  {undatedTasks.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setIsQueueOpen(true)}
+                      className="mb-4 flex w-full items-center gap-3 rounded-2xl border border-indigo-300/25 bg-indigo-500/10 px-4 py-3 text-left transition active:scale-[0.98]"
+                    >
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-indigo-500/15 text-indigo-700 dark:text-indigo-200">
+                        <ListTodo className="h-4 w-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-indigo-700 dark:text-indigo-100">
+                          Fila de tarefas
+                        </p>
+                        <p className="text-xs text-indigo-700/55 dark:text-indigo-200/55">
+                          {undatedTasks.length}{" "}
+                          {undatedTasks.length === 1
+                            ? "tarefa sem data definida"
+                            : "tarefas sem data definida"}
+                        </p>
+                      </div>
+                      <span className="flex h-6 min-w-[1.5rem] items-center justify-center rounded-full bg-indigo-500 px-1.5 text-xs font-bold text-white">
+                        {undatedTasks.length}
+                      </span>
+                    </button>
+                  )}
+
+                  {loading ? (
+                    <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Carregando tarefas…
+                    </div>
+                  ) : error ? (
+                    <div className="rounded-2xl border border-rose-300/25 bg-rose-500/10 p-4 text-sm text-rose-700 dark:text-rose-100">
+                      {error}
+                    </div>
+                  ) : dayTasks.length === 0 && undatedTasks.length === 0 ? (
+                    <EmptyState
+                      icon={ListTodo}
+                      title="Nenhuma tarefa neste dia"
+                      description="Converse com o Axon para ele organizar sua rotina, ou crie manualmente."
+                      actionLabel="Criar tarefa"
+                      onAction={() => setIsCreateModalOpen(true)}
+                    />
+                  ) : dayTasks.length === 0 ? (
+                    <EmptyState title="Nenhuma tarefa neste dia" />
+                  ) : (
+                    <div className="space-y-4">
+                      {dayTasks.map((task) => (
+                        <TimelineItem
+                          key={task.id}
+                          task={task}
+                          selectedIso={selectedIso}
+                          subtasks={subtasksMap[task.id] ?? []}
+                          onToggle={handleToggleDone}
+                          onToggleKey={handleToggleKey}
+                          onEdit={handleEdit}
+                          onDelete={handleDelete}
+                          onToggleSubtask={handleToggleSubtask}
+                          onDeleteSubtask={handleDeleteSubtask}
+                          onSubtaskChange={loadSubtasks}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
             </>
           )}
         </section>
-
-        {viewMode === "month" && (
-          <section className="rounded-[2rem] border border-accent-soft bg-accent-soft p-4 text-primary shadow-card backdrop-blur-2xl">
-            <div className="mb-3 flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-accent" />
-              <p className="text-sm font-semibold text-accent">
-                Visão do mês
-              </p>
-            </div>
-
-            <p className="text-sm leading-6 text-muted">
-              Os pontos indicam dias com tarefas agendadas. Toque em um dia e volte
-              para a visão de semana para ver os detalhes.
-            </p>
-          </section>
-        )}
     </>
   );
 
@@ -959,7 +918,8 @@ function AgendaView({ embedded = false }: { embedded?: boolean } = {}) {
     <main className="relative min-h-screen overflow-hidden bg-app text-primary">
       <AppBackground />
 
-      <div className="relative z-10 min-h-screen px-4 pb-6 pt-5">
+      {/* Mesma medida do hub e da tela de Insights. */}
+      <div className="relative z-10 mx-auto min-h-screen w-full max-w-[430px] px-1 pb-6 pt-5 lg:max-w-[1120px] lg:px-8 lg:pt-7">
         <PageHeader
           title="Planejamento"
           subtitle="Rotina e tarefas"
@@ -1063,15 +1023,18 @@ function CalendarSetupCard({
 // ===========================================================================
 
 function CircularProgress({ value }: { value: number }) {
-  const radius = 58;
+  // raio + metade do traço = 63 + 7 = 70, deixando 5 de folga até a borda do
+  // viewBox (75) para o strokeLinecap arredondado não ser cortado.
+  const radius = 63;
   const circumference = 2 * Math.PI * radius;
-  const offset = circumference - (circumference * value) / 100;
+  const offset =
+    circumference - (circumference * Math.min(Math.max(value, 0), 100)) / 100;
 
   return (
-    <div className="relative flex h-48 w-48 items-center justify-center">
+    <div className="relative flex h-40 w-40 items-center justify-center">
       <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle,var(--accent-soft),transparent_62%)] blur-xl" />
 
-      <svg className="relative h-44 w-44 -rotate-90" viewBox="0 0 150 150">
+      <svg className="relative h-40 w-40 -rotate-90" viewBox="0 0 150 150">
         <circle
           cx="75"
           cy="75"
@@ -1102,7 +1065,7 @@ function CircularProgress({ value }: { value: number }) {
             y2="130"
             gradientUnits="userSpaceOnUse"
           >
-            <stop stopColor="#f0abfc" />
+            <stop stopColor="#c084fc" />
             <stop offset="0.52" stopColor="#a855f7" />
             <stop offset="1" stopColor="#7c3aed" />
           </linearGradient>
@@ -1110,20 +1073,13 @@ function CircularProgress({ value }: { value: number }) {
       </svg>
 
       <div className="absolute text-center">
-        <p className="text-4xl font-semibold tracking-[-0.06em] text-primary">
+        <p className="text-[2.25rem] font-bold leading-none tracking-[-0.04em] text-primary">
           {value}%
         </p>
-        <p className="mt-1 text-xs font-medium text-muted">concluído</p>
+        <p className="mt-1.5 text-[0.68rem] font-semibold text-muted">
+          concluído
+        </p>
       </div>
-    </div>
-  );
-}
-
-function LegendItem({ color, label }: { color: string; label: string }) {
-  return (
-    <div className="flex min-h-9 items-center justify-center gap-2 rounded-xl bg-surface-muted px-2">
-      <span className={`h-2 w-2 shrink-0 rounded-full ${color}`} />
-      <p className="text-[0.62rem] font-medium text-muted">{label}</p>
     </div>
   );
 }
@@ -1131,6 +1087,11 @@ function LegendItem({ color, label }: { color: string; label: string }) {
 // ===========================================================================
 // CALENDÁRIO MENSAL
 // ===========================================================================
+
+// Quantos pontinhos e quantas barras de evento cabem numa célula antes de o
+// excedente virar "+N".
+const MONTH_MAX_DOTS = 5;
+const MONTH_MAX_BARS = 3;
 
 function MonthCalendar({
   selectedDate,
@@ -1146,75 +1107,79 @@ function MonthCalendar({
   const firstWeekday = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const todayIso = toISODate(new Date());
+  const selectedIso = toISODate(selectedDate);
 
   function shiftMonth(delta: number) {
     onSelect(new Date(year, month + delta, 1));
   }
 
+  // Grade completa, incluindo os dias vizinhos que fecham a primeira e a
+  // última semana — antes essas posições eram células vazias.
+  const totalCells = Math.ceil((firstWeekday + daysInMonth) / 7) * 7;
+  const gridStart = new Date(year, month, 1 - firstWeekday);
+
+  const cells = Array.from({ length: totalCells }, (_, i) => {
+    const date = new Date(gridStart);
+    date.setDate(gridStart.getDate() + i);
+    return date;
+  });
+
   function getItemsForDay(date: Date) {
-    const iso = toISODate(date);
-
-    return tasks.filter((task) => {
-      if (!task.scheduled_date) return false;
-
-      const startDate = task.scheduled_date;
-
-      /**
-       * Preparado para eventos de vários dias.
-       * Quando o backend tiver end_date, ele já funciona.
-       */
-      const endDate = (task as Task & { end_date?: string }).end_date;
-
-      if (endDate) {
-        return iso >= startDate && iso <= endDate;
-      }
-
-      return iso === startDate;
-    });
+    return tasks.filter((task) => isTaskOnDate(task, toISODate(date)));
   }
-  
 
-  function isMultiDayEventOnDate(task: Task, date: Date) {
+  // Eventos que cobrem o dia. Cada um vira uma barra arredondada; quando dura
+  // vários dias, a barra é desenhada em cada célula do intervalo e se estende
+  // sobre o gap da grade para parecer contínua.
+  function getEventBars(date: Date) {
     const iso = toISODate(date);
-    const endDate = (task as Task & { end_date?: string }).end_date;
 
-    return Boolean(
-      task.task_type === "event" &&
-        task.scheduled_date &&
-        endDate &&
-        iso >= task.scheduled_date &&
-        iso <= endDate
-    );
+    return tasks
+      .filter(
+        (task) => task.task_type === "event" && isTaskOnDate(task, iso)
+      )
+      .map((event) => {
+        const startIso = event.scheduled_date;
+        const endIso = getTaskEndDate(event) || startIso;
+
+        return {
+          id: event.id,
+          isStart: iso === startIso,
+          isEnd: iso === endIso,
+        };
+      });
   }
 
   return (
-    <div className="rounded-[1.6rem] border border-soft bg-surface-muted p-4">
-      <div className="mb-5 flex items-center justify-between">
+    <div className="rounded-[1.6rem] border border-accent-soft bg-calendar p-2.5">
+      <div className="mb-4 flex items-center justify-between gap-3">
         <button
           type="button"
           onClick={() => shiftMonth(-1)}
-          className="flex h-9 w-9 items-center justify-center rounded-xl border border-soft bg-surface-muted text-muted transition active:scale-[0.96]"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-soft bg-surface-muted text-muted transition active:scale-[0.96]"
+          aria-label="Mês anterior"
         >
           <ChevronLeft className="h-4 w-4" />
         </button>
 
         <div className="text-center">
-          <p className="text-sm font-semibold text-primary">
-            {monthNames[month]} {year}
+          <p className="text-base font-bold text-primary">
+            {monthNames[month]}
           </p>
-          <p className="mt-1 text-xs text-muted">Planejamento mensal</p>
+          <p className="mt-0.5 text-xs text-muted">Mês atual</p>
         </div>
 
         <button
           type="button"
           onClick={() => shiftMonth(1)}
-          className="flex h-9 w-9 items-center justify-center rounded-xl border border-soft bg-surface-muted text-muted transition active:scale-[0.96]"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-soft bg-surface-muted text-muted transition active:scale-[0.96]"
+          aria-label="Próximo mês"
         >
           <ChevronRight className="h-4 w-4" />
         </button>
       </div>
 
-      <div className="mb-3 grid grid-cols-7 gap-2 text-center">
+      <div className="mb-2 grid grid-cols-7 gap-1 text-center">
         {["D", "S", "T", "Q", "Q", "S", "S"].map((day, index) => (
           <p key={`${day}-${index}`} className="text-[0.68rem] text-muted">
             {day}
@@ -1222,83 +1187,105 @@ function MonthCalendar({
         ))}
       </div>
 
-      <div className="grid grid-cols-7 gap-2">
-        {Array.from({ length: firstWeekday }).map((_, i) => (
-          <div key={`blank-${i}`} />
-        ))}
-
-        {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((day) => {
-          const date = new Date(year, month, day);
+      <div className="grid grid-cols-7 gap-1">
+        {cells.map((date, index) => {
           const iso = toISODate(date);
 
-          const isSelected = iso === toISODate(selectedDate);
+          const isSelected = iso === selectedIso;
           const isToday = iso === todayIso;
+          const isOutside = date.getMonth() !== month;
 
+          // Eventos viram barras; o restante (tarefas e rotinas), pontinhos.
           const items = getItemsForDay(date);
-          const visibleItems = items.slice(0, 3);
-          const extraCount = items.length - visibleItems.length;
+          const dotItems = items.filter((item) => item.task_type !== "event");
+          const dots = dotItems.slice(0, MONTH_MAX_DOTS);
 
-          const hasMultiDayEvent = items.some((item) =>
-            isMultiDayEventOnDate(item, date)
-          );
+          const eventBars = getEventBars(date);
+          const bars = eventBars.slice(0, MONTH_MAX_BARS);
+
+          const extraCount =
+            dotItems.length - dots.length + (eventBars.length - bars.length);
+
+          const isRowStart = index % 7 === 0;
+          const isRowEnd = index % 7 === 6;
 
           return (
             <button
-              key={day}
+              key={iso}
               type="button"
               onClick={() => onSelect(date)}
-              className={`relative flex min-h-[4.4rem] flex-col items-center justify-start rounded-xl border px-1.5 py-2 text-xs font-medium transition active:scale-[0.96] ${
-                isSelected
-                  ? "border-accent-soft bg-[var(--accent-strong)] text-white shadow-card"
+              className={`flex min-h-[4.6rem] flex-col items-center gap-1 rounded-xl border px-0.5 pb-1 pt-1.5 transition active:scale-[0.96] ${
+                isOutside
+                  ? // dias de outro mês não ganham quadrado: só número e itens
+                    "border-transparent bg-transparent"
+                  : isSelected
+                  ? "border-[var(--accent)] bg-transparent"
                   : isToday
-                  ? "border-accent-soft bg-accent-soft text-accent"
-                  : "border-soft bg-surface-muted text-muted"
+                  ? "border-accent-soft bg-accent-soft"
+                  : "border-transparent bg-[#242430]/12"
               }`}
             >
-              <span className="text-sm font-semibold">{day}</span>
+              <span
+                className={`text-sm font-semibold ${
+                  isSelected
+                    ? "text-primary"
+                    : isOutside
+                    ? "text-soft"
+                    : isToday
+                    ? "text-accent"
+                    : "text-secondary"
+                }`}
+              >
+                {date.getDate()}
+              </span>
 
-              {hasMultiDayEvent && (
-                <span
-                  className={`mt-1 h-1.5 w-full rounded-full ${
-                    isSelected ? "bg-white/75" : "bg-cyan-300/70"
-                  }`}
-                />
+              {/* Barras dos eventos. Nas pontas do evento (ou da semana) ficam
+                  arredondadas; nos dias do meio, a margem negativa de 5px cobre
+                  o gap da grade (4px) mais a borda e o padding da célula, para
+                  a barra parecer contínua entre um dia e o seguinte. */}
+              {bars.length > 0 ? (
+                <span className="flex w-full flex-col gap-0.5">
+                  {bars.map((bar) => (
+                    <span
+                      key={bar.id}
+                      className={`h-1.5 bg-[var(--accent)] ${
+                        bar.isStart || isRowStart
+                          ? "rounded-l-full"
+                          : "-ml-[5px]"
+                      } ${
+                        bar.isEnd || isRowEnd ? "rounded-r-full" : "-mr-[5px]"
+                      }`}
+                    />
+                  ))}
+                </span>
+              ) : (
+                <span className="h-1.5" />
               )}
 
-              {items.length > 0 && (
-                <div className="mt-auto flex w-full flex-col items-center gap-1 pt-1">
-                  <div className="flex max-w-full justify-center gap-1">
-                    {visibleItems.map((item) => (
+              {(dots.length > 0 || extraCount > 0) && (
+                <span className="flex flex-col items-center gap-0.5">
+                  <span className="flex items-center gap-0.5">
+                    {dots.map((item) => (
                       <span
                         key={item.id}
-                        className={`h-1.5 w-1.5 rounded-full ${getMonthItemColor(
+                        className={`h-1 w-1 rounded-full ${getMonthItemColor(
                           item.task_type,
-                          isSelected
+                          false
                         )}`}
                       />
                     ))}
-                  </div>
+                  </span>
 
                   {extraCount > 0 && (
-                    <span
-                      className={`text-[0.58rem] font-semibold leading-none ${
-                        isSelected ? "text-white/80" : "text-muted"
-                      }`}
-                    >
-                      +{extraCount}
+                    <span className="text-[0.55rem] font-semibold leading-none text-muted">
+                      + {extraCount}
                     </span>
                   )}
-                </div>
+                </span>
               )}
             </button>
           );
         })}
-      </div>
-
-      <div className="mt-4 grid grid-cols-3 gap-2 rounded-[1.25rem] border border-soft bg-surface-muted p-2">
-        <MonthLegendDot color="bg-purple-300" label="Tarefa" />
-        <MonthLegendDot color="bg-cyan-300" label="Evento" />
-        <MonthLegendDot color="bg-fuchsia-300" label="Rotina" />
       </div>
     </div>
   );
@@ -1311,15 +1298,6 @@ function getMonthItemColor(taskType: TaskType, isSelected: boolean) {
   if (taskType === "routine") return "bg-fuchsia-300";
 
   return "bg-purple-300";
-}
-
-function MonthLegendDot({ color, label }: { color: string; label: string }) {
-  return (
-    <div className="flex items-center justify-center gap-1.5 rounded-xl bg-surface-muted px-2 py-2">
-      <span className={`h-1.5 w-1.5 rounded-full ${color}`} />
-      <span className="text-[0.62rem] font-medium text-muted">{label}</span>
-    </div>
-  );
 }
 
 function monthRangeOf(date: Date) {
@@ -1343,11 +1321,11 @@ function isPastDate(isoDate: string) {
 function WeekCalendar({
   selectedDate,
   onSelect,
-  taskDates,
+  tasks,
 }: {
   selectedDate: Date;
   onSelect: (d: Date) => void;
-  taskDates: Set<string>;
+  tasks: Task[];
 }) {
   const days = weekDaysOf(selectedDate);
   const todayIso = toISODate(new Date());
@@ -1361,42 +1339,54 @@ function WeekCalendar({
 
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4 flex items-center justify-between gap-3">
         <button
           type="button"
           onClick={() => shiftWeek(-1)}
-          className="flex h-9 w-9 items-center justify-center rounded-xl border border-soft bg-surface-muted text-muted transition active:scale-[0.96]"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-soft bg-surface-muted text-muted transition active:scale-[0.96]"
+          aria-label="Semana anterior"
         >
           <ChevronLeft className="h-4 w-4" />
         </button>
 
         <div className="text-center">
-          <p className="text-sm font-semibold text-primary">{monthLabel}</p>
-          <p className="mt-1 text-xs text-muted">Semana atual</p>
+          <p className="text-base font-bold text-primary">{monthLabel}</p>
+          <p className="mt-0.5 text-xs text-muted">Semana atual</p>
         </div>
 
         <button
           type="button"
           onClick={() => shiftWeek(1)}
-          className="flex h-9 w-9 items-center justify-center rounded-xl border border-soft bg-surface-muted text-muted transition active:scale-[0.96]"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-soft bg-surface-muted text-muted transition active:scale-[0.96]"
+          aria-label="Próxima semana"
         >
           <ChevronRight className="h-4 w-4" />
         </button>
       </div>
 
-      <div className="flex gap-2 overflow-x-auto pb-1 sm:grid sm:grid-cols-7 sm:overflow-visible sm:pb-0">
+      {/* items-center evita o stretch padrão do grid: sem ele todos os cards
+          assumiriam a altura do mais alto e a diferença do dia selecionado
+          não apareceria. */}
+      <div className="grid grid-cols-7 items-center gap-1.5">
         {days.map((date) => {
           const iso = toISODate(date);
           const isSelected = iso === toISODate(selectedDate);
           const isToday = iso === todayIso;
-          const hasTask = taskDates.has(iso);
+
+          // Até 3 pontinhos indicam a carga do dia, coloridos por tipo de
+          // item; acima disso entra um "+" no lugar da contagem exata.
+          const dayItems = tasks.filter((task) => isTaskOnDate(task, iso));
+          const dots = dayItems.slice(0, 3);
+          const hasMore = dayItems.length > dots.length;
 
           return (
             <button
               key={iso}
               type="button"
               onClick={() => onSelect(date)}
-              className={`relative flex min-h-[82px] min-w-[62px] flex-col items-center justify-center rounded-[1.4rem] border transition active:scale-[0.98] sm:min-w-0 sm:w-full ${
+              className={`flex flex-col items-center justify-center gap-0.5 rounded-2xl border px-0.5 transition active:scale-[0.96] ${
+                isSelected ? "min-h-[76px]" : "min-h-[66px]"
+              } ${
                 isSelected
                   ? "border-accent-soft bg-[var(--accent-strong)] text-white shadow-card"
                   : isToday
@@ -1404,16 +1394,39 @@ function WeekCalendar({
                   : "border-soft bg-surface-muted text-muted"
               }`}
             >
-              <p className="text-xl font-semibold">{date.getDate()}</p>
-              <p className="mt-1 text-xs">{weekdayShort[date.getDay()]}</p>
+              <p className="text-[0.6rem] font-semibold uppercase tracking-wide">
+                {weekdayShort[date.getDay()]}
+              </p>
 
-              {hasTask && (
-                <span
-                  className={`absolute bottom-2 h-1 w-1 rounded-full ${
-                    isSelected ? "bg-white" : "bg-[var(--accent)]"
-                  }`}
-                />
-              )}
+              <p
+                className={`text-lg font-bold ${
+                  isSelected ? "text-white" : "text-primary"
+                }`}
+              >
+                {String(date.getDate()).padStart(2, "0")}
+              </p>
+
+              <div className="flex h-2 items-center gap-0.5">
+                {dots.map((item) => (
+                  <span
+                    key={item.id}
+                    className={`h-1 w-1 rounded-full ${getMonthItemColor(
+                      item.task_type,
+                      isSelected
+                    )}`}
+                  />
+                ))}
+
+                {hasMore && (
+                  <span
+                    className={`text-[0.55rem] font-bold leading-none ${
+                      isSelected ? "text-white" : "text-muted"
+                    }`}
+                  >
+                    +
+                  </span>
+                )}
+              </div>
             </button>
           );
         })}
@@ -1425,6 +1438,57 @@ function WeekCalendar({
 // ===========================================================================
 // ITEM DA LINHA DO TEMPO
 // ===========================================================================
+
+// Silhueta do card: a aba de status (canto superior esquerdo) e o corpo saem
+// de uma peça só. O contorno percorre a aba, desce até a altura do corpo,
+// vira à direita e segue pelo topo do corpo — a curva dessa virada é o canto
+// côncavo, que border-radius não consegue fazer.
+//
+//   TAB_W / TAB_H: largura e altura da aba.  R: raio dos cantos convexos.
+//   RC: raio do canto côncavo da junção.
+//
+// TAB_H precisa ser >= R + RC: a lateral direita da aba vai do fim do canto
+// superior (y = R) até o início da curva côncava (y = TAB_H - RC), e esse
+// trecho não pode ter altura negativa.
+const TAB_W = 77; // px
+const TAB_H = 38; // px
+const R = 18; // px — cantos externos
+const RC = 14; // px — canto côncavo
+
+// Usa shape() em vez de path(): path() só aceita coordenadas absolutas em px,
+// e o card precisa acompanhar a largura fluida da coluna (100%).
+//
+// O canto côncavo é um quarto de círculo: a lateral da aba desce reta até
+// y = TAB_H, e só então a curva vira para a direita, saindo horizontal na
+// altura do topo do corpo. Descrever a virada como um arco diagonal (de
+// y = TAB_H - RC direto para x = TAB_W + RC) achata a curva num corte
+// enviesado — o arco precisa dos dois trechos separados.
+// O sentido de cada arco é sempre explícito: em shape() o arc-sweep tem
+// default ccw, que coloca o centro do arco FORA da massa do card. Nos cantos
+// externos isso recorta uma mordida circular em vez de arredondar. Portanto:
+//   cw  -> centro dentro do card  -> canto convexo (os quatro externos)
+//   ccw -> centro fora do card    -> canto côncavo (só a junção da aba)
+const CARD_CLIP_PATH = [
+  `shape(from 0px ${TAB_H}px,`,
+  // aba: sobe pela esquerda e contorna o topo
+  `line to 0px ${R}px,`,
+  `arc to ${R}px 0px of ${R}px cw,`,
+  `line to ${TAB_W - R}px 0px,`,
+  `arc to ${TAB_W}px ${R}px of ${R}px cw,`,
+  // lateral direita da aba, reta até a altura do topo do corpo
+  `line to ${TAB_W}px ${TAB_H - RC}px,`,
+  // canto côncavo: quarto de volta para a direita, entrando no corpo
+  `arc to ${TAB_W + RC}px ${TAB_H}px of ${RC}px ccw,`,
+  // topo do corpo até o canto superior direito
+  `line to calc(100% - ${R}px) ${TAB_H}px,`,
+  `arc to 100% ${TAB_H + R}px of ${R}px cw,`,
+  // lateral direita, base e volta pela esquerda
+  `line to 100% calc(100% - ${R}px),`,
+  `arc to calc(100% - ${R}px) 100% of ${R}px cw,`,
+  `line to ${R}px 100%,`,
+  `arc to 0px calc(100% - ${R}px) of ${R}px cw,`,
+  `close)`,
+].join(" ");
 
 function TimelineItem({
   task,
@@ -1497,11 +1561,65 @@ function TimelineItem({
       ? `${start} - ${end}`
       : start ?? "Sem horário";
 
-  return (
-    <div className="grid grid-cols-[3.4rem_1fr] gap-3">
-      <div className="flex flex-col pt-1">
-        <p className="text-xs font-semibold text-secondary">{start ?? "—"}</p>
+  // Percentual mostrado na aba de status: eventos multi-dia usam o avanço no
+  // intervalo; os demais itens usam o progresso/checklist.
+  const headerProgress = isMultiDayEvent
+    ? isDone
+      ? 100
+      : multiDayProgress?.progress ?? 0
+    : isDisplayDone
+    ? 100
+    : visualProgress;
 
+  const statusLabel = isDisplayDone ? "Completo" : statusLabels[displayStatus];
+
+  const statusToneClass = isDisplayDone
+    ? "text-accent"
+    : isDisplayProgress
+    ? "text-accent"
+    : isDisplayScheduled
+    ? "text-cyan-600 dark:text-cyan-200"
+    : "text-muted";
+
+  const barFillClass = isDisplayDone
+    ? "bg-[var(--accent)]"
+    : isMultiDayEvent
+    ? "bg-gradient-to-r from-cyan-300 to-purple-300"
+    : isRoutine
+    ? "bg-gradient-to-r from-fuchsia-300 to-purple-300"
+    : isDisplayProgress
+    ? "bg-gradient-to-r from-purple-400 to-fuchsia-300"
+    : "bg-[var(--border-medium)]";
+
+  // Cor da superfície do card. Sem borda: a silhueta é recortada por
+  // clip-path (aba + corpo numa peça só) e um contorno de 1px não
+  // acompanharia o recorte.
+  const surfaceClass = isKey
+    ? "bg-amber-400/[0.08]"
+    : isDisplayDone
+    ? "bg-emerald-400/10"
+    : isEvent && isDisplayProgress
+    ? "bg-accent-soft"
+    : isEvent
+    ? "bg-cyan-400/10"
+    : isRoutine
+    ? "bg-fuchsia-400/10"
+    : isDisplayProgress
+    ? "bg-accent-soft"
+    : "bg-surface-muted";
+
+  return (
+    <div className="grid grid-cols-[2.1rem_1fr] gap-1">
+      {/* Coluna de horários com a linha do tempo tracejada. Alinhada à
+          esquerda para os horários baterem com a borda esquerda dos demais
+          blocos da tela (botão "Nova tarefa", seta da semana, card de segunda). */}
+      <div className="flex flex-col items-stretch pt-1 text-left">
+        <p className="text-[0.62rem] font-semibold text-secondary">
+          {start ?? "—"}
+        </p>
+
+        {/* mx-auto centraliza a linha na coluna, que tem a mesma largura do
+            texto do horário — assim ela cai no meio dos números. */}
         <div
           className={`mx-auto my-2 w-px flex-1 border-l ${
             isRoutine
@@ -1510,278 +1628,280 @@ function TimelineItem({
           }`}
         />
 
-        <p className="pb-1 text-xs font-semibold text-muted">{end ?? "—"}</p>
+        <p className="pb-1 text-[0.62rem] font-semibold text-muted">
+          {end ?? "—"}
+        </p>
       </div>
 
+      {/* Card em peça única: a aba de status e o corpo formam uma silhueta só,
+          recortada por clip-path (ver CARD_CLIP_PATH). A faixa com barra, %
+          e botões fica fora do recorte, sobre o fundo da tela. */}
       <div
-        className={`min-w-0 rounded-[1.55rem] border p-4 shadow-xl shadow-card ${
-          isKey ? "ring-1 ring-amber-300/45 " : ""
-        }${
-          isKey
-            ? "border-amber-300/30 bg-amber-400/[0.08]"
-            : isDisplayDone
-            ? "border-emerald-300/20 bg-emerald-400/10"
-            : isEvent && isDisplayProgress
-            ? "border-accent-soft bg-accent-soft"
-            : isEvent
-            ? "border-cyan-300/20 bg-cyan-400/10"
-            : isRoutine
-            ? "border-fuchsia-300/20 bg-fuchsia-400/10"
-            : isDisplayProgress
-            ? "border-accent-soft bg-accent-soft"
-            : "border-soft bg-surface-muted"
-        }`}
+        className="relative min-w-0"
+        style={
+          {
+            "--tab-w": `${TAB_W}px`,
+            "--tab-h": `${TAB_H}px`,
+          } as CSSProperties
+        }
       >
-        {/* Header do card: tipo, status, subtarefas e ações rápidas. */}
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            {isKey && (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300/30 bg-amber-400/10 px-3 py-1 text-[0.65rem] font-semibold text-amber-100">
-                <Star className="h-3 w-3 fill-amber-300 text-amber-300" />
-                Tarefa chave
-              </span>
-            )}
-
-            <span
-              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[0.65rem] font-semibold ${
-                isEvent
-                  ? "border-cyan-300/20 bg-cyan-400/10 text-cyan-100"
-                  : isRoutine
-                  ? "border-fuchsia-300/20 bg-fuchsia-400/10 text-fuchsia-100"
-                  : isDisplayDone
-                  ? "border-emerald-300/20 bg-emerald-400/10 text-emerald-100"
-                  : isDisplayProgress
-                  ? "border-accent-soft bg-accent-soft text-accent"
-                  : "border-soft bg-surface-muted text-muted"
-              }`}
-            >
-              <Icon className="h-3 w-3" />
-              {typeLabels[task.task_type]}
-            </span>
-
-            <span
-              className={`rounded-full border px-3 py-1 text-[0.65rem] font-semibold ${
-                isDisplayDone
-                  ? "border-emerald-300/20 bg-emerald-400/10 text-emerald-100"
-                  : isDisplayProgress
-                  ? "border-accent-soft bg-accent-soft text-accent"
-                  : isDisplayScheduled
-                  ? "border-cyan-300/20 bg-cyan-400/10 text-cyan-100"
-                  : "border-soft bg-surface-muted text-muted"
-              }`}
-            >
-              {statusLabels[displayStatus]}
-            </span>
-
-            {hasSubtasks && (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-accent-soft bg-accent-soft px-3 py-1 text-[0.65rem] font-semibold text-accent">
-                <CheckCircle2 className="h-3 w-3" />
-                {completedSubtasks}/{subtasks.length}
-              </span>
-            )}
-
-            {task.carry_count > 0 && (
-              <span
-                className="inline-flex items-center gap-1.5 rounded-full border border-orange-300/20 bg-orange-400/10 px-3 py-1 text-[0.65rem] font-semibold text-orange-100"
-                title={`Adiada ${task.carry_count}x`}
-              >
-                <RotateCcw className="h-3 w-3" />
-                {task.carry_count}x adiada
-              </span>
-            )}
+        <div className="absolute inset-x-0 top-0 flex h-[var(--tab-h)] items-center gap-2 pl-[var(--tab-w)]">
+          <div className="ml-2 h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-[var(--border-soft)]">
+            <div
+              className={`h-full rounded-full ${barFillClass}`}
+              style={{
+                width: `${Math.min(Math.max(headerProgress, 0), 100)}%`,
+              }}
+            />
           </div>
 
-          <div className="flex shrink-0 items-center gap-2">
-            {onToggleKey && (
-              <button
-                type="button"
-                onClick={() => onToggleKey(task)}
-                className={`flex h-8 w-8 items-center justify-center rounded-xl active:scale-[0.94] ${
-                  isKey
-                    ? "bg-amber-400/15 text-amber-200"
-                    : "bg-surface-muted text-muted"
-                }`}
-                aria-label={
-                  isKey ? "Desmarcar tarefa chave" : "Marcar como tarefa chave"
-                }
-                title={
-                  isKey ? "Desmarcar tarefa chave" : "Marcar como tarefa chave"
-                }
-              >
-                <Star
-                  className={`h-4 w-4 ${isKey ? "fill-amber-300 text-amber-300" : ""}`}
-                />
-              </button>
-            )}
+          <p className="shrink-0 text-xs font-bold text-accent">
+            {headerProgress}%
+          </p>
+
+          <div className="flex shrink-0 items-center gap-1">
+              {onToggleKey && (
+                <button
+                  type="button"
+                  onClick={() => onToggleKey(task)}
+                  className={`flex h-8 w-8 items-center justify-center rounded-xl border border-soft active:scale-[0.94] ${
+                    isKey
+                      ? "bg-amber-400/15 text-amber-500 dark:text-amber-200"
+                      : "bg-surface-muted text-muted"
+                  }`}
+                  aria-label={
+                    isKey ? "Desmarcar tarefa chave" : "Marcar como tarefa chave"
+                  }
+                  title={
+                    isKey ? "Desmarcar tarefa chave" : "Marcar como tarefa chave"
+                  }
+                >
+                  <Star
+                    className={`h-3.5 w-3.5 ${
+                      isKey ? "fill-amber-300 text-amber-300" : ""
+                    }`}
+                  />
+                </button>
+              )}
 
             <button
               type="button"
               onClick={() => onEdit(task)}
-              className="flex h-8 w-8 items-center justify-center rounded-xl bg-surface-muted text-muted transition active:scale-[0.94]"
+              className="flex h-8 w-8 items-center justify-center rounded-xl border border-soft bg-surface-muted text-muted transition active:scale-[0.94]"
               aria-label="Editar item"
             >
-              <Edit3 className="h-4 w-4" />
+              <Edit3 className="h-3.5 w-3.5" />
             </button>
 
             <button
               type="button"
               onClick={() => onDelete(task)}
-              className="flex h-8 w-8 items-center justify-center rounded-xl bg-surface-muted text-muted transition active:scale-[0.94]"
+              className="flex h-8 w-8 items-center justify-center rounded-xl border border-soft bg-surface-muted text-muted transition active:scale-[0.94]"
               aria-label="Remover item"
             >
-              <Trash2 className="h-4 w-4" />
+              <Trash2 className="h-3.5 w-3.5" />
             </button>
           </div>
         </div>
 
-        {/* Conteúdo principal do card. */}
-        <div className="mb-4 flex items-start gap-3">
-          <div
-            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border ${
-              isDisplayDone
-                ? "border-emerald-300/20 bg-emerald-400/10 text-emerald-100"
-                : isEvent && isDisplayProgress
-                ? "border-accent-soft bg-accent-soft text-accent"
-                : isEvent
-                ? "border-cyan-300/20 bg-cyan-400/10 text-cyan-100"
-                : isRoutine
-                ? "border-fuchsia-300/20 bg-fuchsia-400/10 text-fuchsia-100"
-                : isDisplayProgress
-                ? "border-accent-soft bg-accent-soft text-accent"
-                : "border-soft bg-surface-muted text-muted"
-            }`}
+        {/* Superfície única: a aba de status e o corpo saem do mesmo retângulo,
+            recortado pelo clip-path — por isso a junção tem canto côncavo e
+            não existe linha separando as duas partes. */}
+        <div
+          className={`timeline-card relative min-w-0 pt-[var(--tab-h)] ${surfaceClass}`}
+          style={{
+            clipPath: CARD_CLIP_PATH,
+          }}
+        >
+          {/* Rótulo do status, dentro da aba recortada. */}
+          {/* text-center além do justify-center: rótulos longos ("Em
+              andamento") quebram em duas linhas dentro da aba, e sem ele cada
+              linha ficaria alinhada à esquerda. */}
+          <p
+            className={`absolute left-0 top-0 flex h-[var(--tab-h)] w-[var(--tab-w)] items-center justify-center px-1 text-center text-[0.75rem] font-bold leading-tight ${statusToneClass}`}
           >
-            {isDisplayDone ? (
-              <CheckCircle2 className="h-5 w-5" />
-            ) : (
-              <Icon className="h-5 w-5" />
-            )}
-          </div>
+            {statusLabel}
+          </p>
 
-          <div className="min-w-0 flex-1">
-            <p className="break-words text-base font-semibold text-primary">
-              {task.title}
-            </p>
-            <p className="mt-1 truncate text-xs text-muted">{subtitle}</p>
-            {task.objective_title && (
-              <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-full border border-accent-soft bg-accent-soft px-2.5 py-0.5 text-[0.65rem] font-medium text-accent">
-                <Target className="h-2.5 w-2.5" />
-                {task.objective_title}
+          {/* Ícone em losango, título, chips e ação de conclusão. */}
+          <div className="flex items-start gap-2.5 px-2.5 pb-2.5 pt-3">
+            <div className="min-w-0 flex-1">
+              {/* O losango é irmão do título/subtítulo num flex items-center,
+                  então o centro dele casa com o centro desse par — sem depender
+                  da altura dos chips e do horário, que vêm abaixo. */}
+              <div className="flex items-center gap-2.5">
+                <div
+                  className={`flex h-11 w-11 shrink-0 rotate-45 items-center justify-center rounded-[0.9rem] border ${
+                    isDisplayDone
+                      ? "border-emerald-300/20 bg-emerald-400/15 text-emerald-600 dark:text-emerald-100"
+                      : isEvent && isDisplayProgress
+                      ? "border-accent-soft bg-accent-soft text-accent"
+                      : isEvent
+                      ? "border-cyan-300/20 bg-cyan-400/15 text-cyan-600 dark:text-cyan-100"
+                      : isRoutine
+                      ? "border-fuchsia-300/20 bg-fuchsia-400/15 text-fuchsia-600 dark:text-fuchsia-100"
+                      : isDisplayProgress
+                      ? "border-accent-soft bg-accent-soft text-accent"
+                      : "border-soft bg-surface-muted text-muted"
+                  }`}
+                >
+                  {isDisplayDone ? (
+                    <CheckCircle2 className="h-5 w-5 -rotate-45" />
+                  ) : (
+                    <Icon className="h-5 w-5 -rotate-45" />
+                  )}
+                </div>
+
+                <div className="min-w-0 flex-1">
+                  <p className="break-words text-[0.95rem] font-bold leading-snug text-primary">
+                    {task.title}
+                  </p>
+
+                  <p className="mt-0.5 truncate text-xs text-muted">
+                    {subtitle}
+                  </p>
+                </div>
               </div>
-            )}
-          </div>
-        </div>
 
-        {/* Linha de horário e ação de conclusão. */}
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <p className="truncate text-xs text-muted">{detailLabel}</p>
+              {/* pl = largura do losango (2.75rem) + gap (0.625rem), para os
+                  chips e o horário alinharem com o título. */}
+              <div className="mt-2 flex flex-wrap items-center gap-1.5 pl-[3.375rem]">
+                {isKey && (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-amber-300/30 bg-amber-400/10 px-2 py-0.5 text-[0.62rem] font-semibold text-amber-600 dark:text-amber-200">
+                    <Star className="h-2.5 w-2.5 fill-amber-300 text-amber-300" />
+                    Chave
+                  </span>
+                )}
 
-          {isMultiDayEvent ? (
-            <button
-              type="button"
-              onClick={() => {
-                if (canCompleteMultiDayEvent) {
-                  onToggle(task);
-                }
-              }}
-              disabled={!canCompleteMultiDayEvent}
-              className={`inline-flex items-center gap-1.5 text-xs font-semibold active:scale-[0.97] disabled:cursor-not-allowed ${
-                isDone
-                  ? "text-emerald-200"
-                  : canCompleteMultiDayEvent
-                  ? "text-accent"
-                  : "text-soft"
-              }`}
-            >
-              {isDone ? (
-                <>
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-                  Concluído
-                </>
-              ) : canCompleteMultiDayEvent ? (
-                <>
-                  <Circle className="h-3.5 w-3.5" />
-                  Marcar
-                </>
-              ) : (
-                <>
-                  <Circle className="h-3.5 w-3.5" />
-                  Em andamento
-                </>
-              )}
-            </button>
-          ) : !isEvent ? (
-            <button
-              type="button"
-              onClick={() => onToggle(task)}
-              className="inline-flex items-center gap-1.5 text-xs font-semibold text-accent transition active:scale-[0.97]"
-            >
-              {isDone ? (
-                <>
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-                  Feita
-                </>
-              ) : (
-                <>
-                  <Circle className="h-3.5 w-3.5" />
-                  Marcar
-                </>
-              )}
-            </button>
-          ) : null}
-        </div>
+                {task.objective_title && (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-accent-soft bg-accent-soft px-2 py-0.5 text-[0.62rem] font-medium text-accent">
+                    <Target className="h-2.5 w-2.5" />
+                    {task.objective_title}
+                  </span>
+                )}
 
-        {/* Barra de progresso. Em tarefas com subtarefas, usa o checklist como fonte. */}
-        {isMultiDayEvent ? (
-          <div>
-            <div className="mb-2 flex items-center justify-between text-[0.68rem] text-muted">
-              <span>
-                Dia {multiDayProgress?.currentDay} de {multiDayProgress?.totalDays}
-              </span>
+                {hasSubtasks && (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-accent-soft bg-accent-soft px-2 py-0.5 text-[0.62rem] font-semibold text-accent">
+                    <CheckCircle2 className="h-2.5 w-2.5" />
+                    {completedSubtasks}/{subtasks.length}
+                  </span>
+                )}
 
-              <span>{isDone ? "100" : multiDayProgress?.progress}%</span>
+                {task.carry_count > 0 && (
+                  <span
+                    className="inline-flex items-center gap-1 rounded-full border border-orange-300/20 bg-orange-400/10 px-2 py-0.5 text-[0.62rem] font-semibold text-orange-600 dark:text-orange-200"
+                    title={`Adiada ${task.carry_count}x`}
+                  >
+                    <RotateCcw className="h-2.5 w-2.5" />
+                    {task.carry_count}
+                  </span>
+                )}
+
+                {/* Último item da linha, seguindo o gap das tags: sem tag
+                    nenhuma ele encosta à esquerda, alinhado com o título; a
+                    cada tag adicionada ele vai deslocando para a direita. */}
+                <p className="shrink-0 whitespace-nowrap text-[0.68rem] text-soft">
+                  {detailLabel}
+                </p>
+              </div>
             </div>
 
-            <div className="h-1.5 overflow-hidden rounded-full bg-[var(--border-soft)]">
-              <div
-                className={`h-full rounded-full ${
-                  isDone
-                    ? "bg-emerald-300"
-                    : "bg-gradient-to-r from-cyan-300 to-purple-300"
-                }`}
-                style={{
-                  width: `${isDone ? 100 : multiDayProgress?.progress ?? 0}%`,
+            {/* Ação de conclusão: círculo grande à direita, como na referência. */}
+            {isMultiDayEvent ? (
+              <button
+                type="button"
+                onClick={() => {
+                  if (canCompleteMultiDayEvent) {
+                    onToggle(task);
+                  }
                 }}
-              />
-            </div>
-          </div>
-        ) : !isEvent ? (
-          <div>
-            <div className="h-1.5 overflow-hidden rounded-full bg-[var(--border-soft)]">
-              <div
-                className={`h-full rounded-full ${
-                  isDisplayDone
-                    ? "bg-emerald-300"
-                    : isRoutine
-                    ? "bg-gradient-to-r from-fuchsia-300 to-purple-300"
-                    : isDisplayProgress
-                    ? "bg-gradient-to-r from-purple-400 to-fuchsia-300"
-                    : "bg-white/30"
-                }`}
-                style={{ width: `${Math.max(visualProgress, 6)}%` }}
-              />
-            </div>
+                disabled={!canCompleteMultiDayEvent}
+                className="flex shrink-0 flex-col items-center gap-1 pt-1 active:scale-[0.97] disabled:cursor-not-allowed"
+              >
+                <span
+                  className={`flex h-[1.375rem] w-[1.375rem] items-center justify-center rounded-full border-2 ${
+                    isDone
+                      ? "border-emerald-400 bg-emerald-400/15 text-emerald-500 dark:text-emerald-300"
+                      : canCompleteMultiDayEvent
+                      ? "border-[var(--accent)]"
+                      : "border-[var(--border-medium)]"
+                  }`}
+                >
+                  {isDone && <CheckCircle2 className="h-3 w-3" />}
+                </span>
 
-            <SubtasksPreview
-              taskId={task.id}
-              subtasks={subtasks}
-              completedSubtasks={completedSubtasks}
-              onToggleSubtask={onToggleSubtask}
-              onDeleteSubtask={onDeleteSubtask}
-              onSubtaskChange={onSubtaskChange}
-            />
+                <span
+                  className={`text-[0.62rem] font-semibold ${
+                    isDone
+                      ? "text-emerald-600 dark:text-emerald-300"
+                      : canCompleteMultiDayEvent
+                      ? "text-accent"
+                      : "text-soft"
+                  }`}
+                >
+                  {isDone
+                    ? "Feito"
+                    : canCompleteMultiDayEvent
+                    ? "Marcar"
+                    : "Em curso"}
+                </span>
+              </button>
+            ) : !isEvent ? (
+              <button
+                type="button"
+                onClick={() => onToggle(task)}
+                className="flex shrink-0 flex-col items-center gap-1 pt-1 transition active:scale-[0.97]"
+                aria-label={
+                  isDone ? "Desmarcar tarefa" : "Marcar tarefa como feita"
+                }
+              >
+                <span
+                  className={`flex h-[1.375rem] w-[1.375rem] items-center justify-center rounded-full border-2 ${
+                    isDone
+                      ? "border-emerald-400 bg-emerald-400/15 text-emerald-500 dark:text-emerald-300"
+                      : "border-[var(--accent)]"
+                  }`}
+                >
+                  {isDone && <CheckCircle2 className="h-3 w-3" />}
+                </span>
+
+                <span
+                  className={`text-[0.62rem] font-semibold ${
+                    isDone
+                      ? "text-emerald-600 dark:text-emerald-300"
+                      : "text-accent"
+                  }`}
+                >
+                  {isDone ? "Feita" : "Marcar"}
+                </span>
+              </button>
+            ) : null}
           </div>
-        ) : null}
+
+          {/* Checklist de subtarefas (tarefas e rotinas). */}
+          {!isEvent && (
+            <div className="px-2.5 pb-2.5">
+              <SubtasksPreview
+                taskId={task.id}
+                subtasks={subtasks}
+                completedSubtasks={completedSubtasks}
+                onToggleSubtask={onToggleSubtask}
+                onDeleteSubtask={onDeleteSubtask}
+                onSubtaskChange={onSubtaskChange}
+              />
+            </div>
+          )}
+
+          {/* Eventos multi-dia mantêm o indicador de dia dentro do intervalo. */}
+          {isMultiDayEvent && (
+            <div className="px-2.5 pb-2.5">
+              <p className="text-[0.68rem] text-muted">
+                Dia {multiDayProgress?.currentDay} de{" "}
+                {multiDayProgress?.totalDays}
+              </p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -1831,134 +1951,140 @@ function SubtasksPreview({
     }
   }
 
+  // Campo de criação (ou o botão que o abre). Fica numa variável porque é
+  // renderizado dentro da moldura quando já há subtarefas e solto quando não há.
+  const composer = adding ? (
+    <div className="flex items-center gap-2">
+      <input
+        autoFocus
+        value={newTitle}
+        onChange={(e) => setNewTitle(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            handleAdd();
+          }
+          if (e.key === "Escape") {
+            setAdding(false);
+            setNewTitle("");
+          }
+        }}
+        placeholder="Nome da subtarefa…"
+        className="min-h-[34px] flex-1 rounded-xl border border-accent-soft bg-surface-muted px-3 text-xs text-primary outline-none placeholder:text-soft"
+      />
+      <button
+        type="button"
+        onClick={handleAdd}
+        disabled={saving || !newTitle.trim()}
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[var(--accent-strong)] text-white transition active:scale-[0.94] disabled:opacity-45"
+      >
+        {saving ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <Plus className="h-3.5 w-3.5" />
+        )}
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          setAdding(false);
+          setNewTitle("");
+        }}
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-surface-muted text-muted transition active:scale-[0.94]"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  ) : (
+    <button
+      type="button"
+      onClick={() => setAdding(true)}
+      className="flex w-full items-center justify-center gap-1 rounded-xl border border-dashed border-[var(--border-medium)] py-2 text-[0.7rem] font-bold text-secondary active:scale-[0.98]"
+    >
+      <Plus className="h-3 w-3" />
+      Adicionar subtarefas
+    </button>
+  );
+
+  // Sem subtarefas não há lista para emoldurar — a moldura em volta de um
+  // botão solto parecia um card vazio.
+  if (!hasSubtasks) {
+    return composer;
+  }
+
   return (
-    <div className="mt-4 space-y-2 rounded-[1.25rem] border border-soft bg-surface-muted p-3">
-      {hasSubtasks && (
-        <>
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-soft">
-              Subtarefas
-            </p>
+    <div className="space-y-2 rounded-[1.25rem] border border-soft bg-surface-muted p-2.5">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-soft">
+          Subtarefas
+        </p>
 
-            <p className="text-[0.68rem] font-semibold text-accent">
-              {completedSubtasks} de {subtasks.length}
-            </p>
-          </div>
+        <p className="text-[0.68rem] font-semibold text-accent">
+          {completedSubtasks} de {subtasks.length}
+        </p>
+      </div>
 
-          {visibleSubtasks.map((subtask) => (
-            // Linha = div com dois botões irmãos: <button> aninhado é HTML
-            // inválido e faria o X disparar o toggle junto.
-            <div
-              key={subtask.id}
-              className="flex w-full items-start gap-2 rounded-xl px-1 py-1.5 text-left"
-            >
-              <button
-                type="button"
-                onClick={() => onToggleSubtask(subtask)}
-                className="flex min-w-0 flex-1 items-start gap-2 text-left active:scale-[0.99]"
-              >
-                <span
-                  className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
-                    subtask.done
-                      ? "border-emerald-300/30 bg-emerald-400/15 text-emerald-100"
-                      : "border-soft bg-surface-muted text-soft"
-                  }`}
-                >
-                  {subtask.done && <CheckCircle2 className="h-3.5 w-3.5" />}
-                </span>
-
-                <span
-                  className={`min-w-0 flex-1 break-words text-xs ${
-                    subtask.done ? "text-soft line-through" : "text-secondary"
-                  }`}
-                >
-                  {subtask.title}
-                </span>
-              </button>
-
-              <button
-                type="button"
-                aria-label={`Excluir subtarefa ${subtask.title}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDeleteSubtask(subtask);
-                }}
-                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-soft transition hover:text-red-400 active:scale-[0.92]"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          ))}
-
-          {canExpand && (
-            <button
-              type="button"
-              onClick={() => setExpanded((v) => !v)}
-              className="flex items-center gap-1 pl-7 text-[0.68rem] font-semibold text-accent transition active:scale-[0.98]"
-            >
-              <ChevronDown
-                className={`h-3.5 w-3.5 transition-transform ${
-                  expanded ? "rotate-180" : ""
-                }`}
-              />
-              {expanded ? "Ver menos" : `Ver mais (${hiddenCount})`}
-            </button>
-          )}
-        </>
-      )}
-
-      {adding ? (
-        <div className="flex items-center gap-2">
-          <input
-            autoFocus
-            value={newTitle}
-            onChange={(e) => setNewTitle(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                handleAdd();
-              }
-              if (e.key === "Escape") {
-                setAdding(false);
-                setNewTitle("");
-              }
-            }}
-            placeholder="Nome da subtarefa…"
-            className="min-h-[34px] flex-1 rounded-xl border border-accent-soft bg-surface-muted px-3 text-xs text-primary outline-none placeholder:text-soft"
-          />
+      {visibleSubtasks.map((subtask) => (
+        // Linha = div com dois botões irmãos: <button> aninhado é HTML
+        // inválido e faria o X disparar o toggle junto.
+        <div
+          key={subtask.id}
+          className="flex w-full items-start gap-2 rounded-xl px-1 py-1.5 text-left"
+        >
           <button
             type="button"
-            onClick={handleAdd}
-            disabled={saving || !newTitle.trim()}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[var(--accent-strong)] text-white transition active:scale-[0.94] disabled:opacity-45"
+            onClick={() => onToggleSubtask(subtask)}
+            className="flex min-w-0 flex-1 items-start gap-2 text-left active:scale-[0.99]"
           >
-            {saving ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Plus className="h-3.5 w-3.5" />
-            )}
+            <span
+              className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
+                subtask.done
+                  ? "border-emerald-300/30 bg-emerald-400/15 text-emerald-100"
+                  : "border-soft bg-surface-muted text-soft"
+              }`}
+            >
+              {subtask.done && <CheckCircle2 className="h-3.5 w-3.5" />}
+            </span>
+
+            <span
+              className={`min-w-0 flex-1 break-words text-xs ${
+                subtask.done ? "text-soft line-through" : "text-secondary"
+              }`}
+            >
+              {subtask.title}
+            </span>
           </button>
+
           <button
             type="button"
-            onClick={() => {
-              setAdding(false);
-              setNewTitle("");
+            aria-label={`Excluir subtarefa ${subtask.title}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onDeleteSubtask(subtask);
             }}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-surface-muted text-muted transition active:scale-[0.94]"
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-soft transition hover:text-red-400 active:scale-[0.92]"
           >
             <X className="h-3.5 w-3.5" />
           </button>
         </div>
-      ) : (
+      ))}
+
+      {canExpand && (
         <button
           type="button"
-          onClick={() => setAdding(true)}
-          className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-[var(--border-soft)] py-1.5 text-[0.68rem] font-semibold text-muted active:scale-[0.98]"
+          onClick={() => setExpanded((v) => !v)}
+          className="flex items-center gap-1 pl-7 text-[0.68rem] font-semibold text-accent transition active:scale-[0.98]"
         >
-          <Plus className="h-3.5 w-3.5" />
-          Adicionar subtarefa
+          <ChevronDown
+            className={`h-3.5 w-3.5 transition-transform ${
+              expanded ? "rotate-180" : ""
+            }`}
+          />
+          {expanded ? "Ver menos" : `Ver mais (${hiddenCount})`}
         </button>
       )}
+
+      {composer}
     </div>
   );
 }
