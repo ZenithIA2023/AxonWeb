@@ -18,6 +18,47 @@ _WEEKDAY_FULL = [
 
 _PERIOD_DAYS = {"week": 7, "month": 30}
 
+
+def _tag_labels(user_id: str) -> dict[str, str]:
+    """
+    Mapa slug -> rótulo legível das tags do usuário, para as análises falarem
+    "Quase não dormi" em vez de "quase_nao_dormi". Usa as tags personalizadas
+    quando existem e cai nos padrões quando não. Falha silenciosa: sem o mapa
+    as análises ainda rodam, só com os slugs crus.
+    """
+    from routers.profile import _DEFAULT_TAGS
+
+    prefs = None
+    try:
+        res = (
+            supabase.table("profiles")
+            .select("custom_tags")
+            .eq("id", user_id)
+            .single()
+            .execute()
+        )
+        prefs = (res.data or {}).get("custom_tags")
+    except Exception:
+        prefs = None
+
+    labels: dict[str, str] = {}
+    if prefs:
+        for category in ("sleep", "mood", "productivity"):
+            for item in prefs.get(category) or []:
+                slug, label = item.get("slug"), item.get("label")
+                if slug and label:
+                    labels[slug] = label
+    else:
+        for items in (
+            _DEFAULT_TAGS.sleep,
+            _DEFAULT_TAGS.mood,
+            _DEFAULT_TAGS.productivity,
+        ):
+            for item in items:
+                labels[item.slug] = item.label
+
+    return labels
+
 _MONTH_ABBR = [
     "Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
     "Jul", "Ago", "Set", "Out", "Nov", "Dez",
@@ -451,8 +492,17 @@ def get_pattern_insights(
         .execute()
     ).data or []
 
-    rows = insights_service.aggregate_daily(logs, tasks, tz)
-    insights = insights_service.generate_insights(rows)
+    rows = insights_service.aggregate_daily(logs, tasks, tz, _tag_labels(user_id))
+
+    # A chamada ao modelo pode falhar por motivos fora do nosso controle
+    # (indisponibilidade, limite de uso da API). Sem este try a exceção subia
+    # como 500 e a aba quebrava; aqui ela cai no mesmo fallback do parse vazio,
+    # que devolve o último cache bom.
+    try:
+        insights = insights_service.generate_insights(rows)
+    except Exception as e:
+        print(f"[insights] geração de patterns falhou user={user_id}: {e}", flush=True)
+        insights = []
 
     # Se a geração falhou (parse vazio), não grava cache ruim — devolve o último
     # cache válido, se houver, senão lista vazia com aviso.
@@ -574,9 +624,15 @@ def get_discoveries(
         .execute()
     ).data or []
 
-    rows = insights_service.aggregate_daily(logs, tasks, tz)
+    rows = insights_service.aggregate_daily(logs, tasks, tz, _tag_labels(user_id))
+    # find_correlations é puro (só matemática, nunca falha por rede); só a
+    # curadoria/escrita chama o modelo — ver comentário no /patterns.
     raw_findings = correlations_service.find_correlations(rows)
-    findings = correlations_service.write_findings(raw_findings)
+    try:
+        findings = correlations_service.write_findings(raw_findings)
+    except Exception as e:
+        print(f"[insights] curadoria de discoveries falhou user={user_id}: {e}", flush=True)
+        findings = []
 
     if not findings:
         if cached_row and cached_row.get("findings"):
