@@ -25,12 +25,14 @@ _WEEKDAY_FULL = [
     "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"
 ]
 
-SYSTEM_PROMPT = """Você é o Axon, um analista pessoal de cronobiologia e produtividade. Recebe os dados diários de UM usuário das últimas semanas: horário e horas estimadas de sono, qualidade do sono, humor e produtividade percebida (escalas de 1 a 5), se houve exercício, e quantas tarefas concluiu por dia.
+SYSTEM_PROMPT = """Você é o Axon, um analista pessoal de cronobiologia e produtividade. Recebe os dados diários de UM usuário das últimas semanas: dia da semana, horário e horas estimadas de sono, qualidade do sono, humor e produtividade percebida (escalas de 1 a 5), se houve exercício, quantas tarefas concluiu por dia, as etiquetas que o usuário escolheu para descrever o sono/humor/produtividade daquele dia (sleep_tags, mood_tags, productivity_tags) e em quais períodos ele se sentiu mais produtivo (periodos_de_pico).
 
-Sua tarefa: identificar de 3 a 5 padrões REAIS, específicos e acionáveis nos dados — de preferência correlações entre hábitos e resultados (ex.: horas de sono × tarefas concluídas, horário de dormir × humor, exercício × produtividade percebida).
+Sua tarefa: identificar de 3 a 5 padrões REAIS, específicos e acionáveis nos dados — de preferência correlações entre hábitos e resultados (ex.: horas de sono × tarefas concluídas, horário de dormir × humor, exercício × produtividade percebida, etiquetas recorrentes × produtividade, dia da semana × qualquer resultado).
 
 Regras importantes:
 - Baseie-se EXCLUSIVAMENTE nos dados fornecidos. Nunca invente números nem fatos.
+- As etiquetas são as palavras do próprio usuário: cite-as como ele as escreveu, sem traduzir nem reinterpretar.
+- Ao apontar um padrão de dia da semana, só faça isso se houver pelo menos 3 ocorrências daquele dia nos dados; caso contrário, não afirme que é recorrente.
 - A amostra é pequena: fale em tendências e faixas ("cerca de", "tende a", "nos dias em que"), nunca em estatísticas falsamente precisas.
 - Se não houver dados suficientes para uma correlação confiável, faça observações simples e úteis (médias, melhores/piores dias, consistência).
 - Português do Brasil, tom de parceiro próximo e encorajador, sem jargão técnico.
@@ -50,12 +52,57 @@ def _local_date(ts: str | None, tz) -> date | None:
         return None
 
 
-def aggregate_daily(logs: list[dict], tasks: list[dict], tz) -> list[dict]:
+# Períodos de pico do registro diário (slug -> rótulo legível), espelha
+# PEAK_PERIODS do frontend.
+_PEAK_LABELS = {
+    "inicio_manha":  "início da manhã",
+    "manha":         "manhã",
+    "fim_manha":     "fim da manhã",
+    "inicio_tarde":  "início da tarde",
+    "tarde":         "tarde",
+    "fim_tarde":     "fim da tarde",
+    "inicio_noite":  "início da noite",
+    "noite":         "noite",
+}
+
+
+def _label_tags(slugs: list[str] | None, labels_by_slug: dict[str, str]) -> list[str]:
+    """
+    Converte slugs de tag nos rótulos que o usuário vê. Sem isso o Claude
+    receberia "custom_insnia"/"tarefas_leves" e escreveria esses termos crus
+    de volta para o usuário. Slug desconhecido (tag renomeada ou apagada nas
+    Configurações depois do registro) vira uma versão legível do próprio slug,
+    em vez de sumir — o dia registrado não perde informação.
+    """
+    out = []
+    for slug in slugs or []:
+        label = labels_by_slug.get(slug)
+        if label is None:
+            label = slug.removeprefix("custom_").replace("_", " ").strip()
+        if label:
+            out.append(label)
+    return out
+
+
+def aggregate_daily(
+    logs: list[dict],
+    tasks: list[dict],
+    tz,
+    tag_labels: dict[str, str] | None = None,
+) -> list[dict]:
     """
     Combina registros diários com a contagem de tarefas concluídas por dia.
     Retorna uma linha por dia que tenha registro diário, em ordem cronológica.
     Pura — sem I/O.
+
+    `tag_labels` mapeia slug -> rótulo legível (ver routers/insights.py). As
+    tags e os períodos de pico entram nas linhas porque são justamente onde o
+    usuário descreve o que aconteceu no dia: sem eles,
+    correlations_service._dynamic_tag_conditions() nunca encontrava nada e a
+    varredura de tags livres — o motivo de ela ser genérica — não existia na
+    prática.
     """
+    labels = tag_labels or {}
     # Tarefas concluídas por data local (via completed_at).
     completed_by_day: dict[date, int] = {}
     for t in tasks:
@@ -81,6 +128,15 @@ def aggregate_daily(logs: list[dict], tasks: list[dict], tz) -> list[dict]:
             "produtividade_percebida_1a5": log.get("productivity_rating"),
             "exercitou": log.get("exercised"),
             "tarefas_concluidas": completed_by_day.get(d, 0),
+            # Chaves mantidas em inglês: correlations_service lê estes campos
+            # exatamente por estes nomes (_dynamic_tag_conditions).
+            "sleep_tags": _label_tags(log.get("sleep_tags"), labels),
+            "mood_tags": _label_tags(log.get("mood_tags"), labels),
+            "productivity_tags": _label_tags(log.get("productivity_tags"), labels),
+            "periodos_de_pico": [
+                _PEAK_LABELS.get(p, p.replace("_", " "))
+                for p in (log.get("peak_periods") or [])
+            ],
         })
 
     rows.sort(key=lambda r: r["data"])
