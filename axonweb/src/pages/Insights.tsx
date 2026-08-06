@@ -265,9 +265,11 @@ export default function Insights() {
   }, []);
 
   // Consistência de rotinas ativas na semana atual (card "Rotinas desta semana").
+  // Endpoint enxuto: o /dashboard/ completo traria perfil, calibração, tarefas
+  // do dia e blocos de foco que esta aba descarta.
   useEffect(() => {
     api
-      .getDashboard()
+      .getRoutineConsistency()
       .then((d) => setRoutineConsistency(d.routine_consistency ?? []))
       .catch(() => setRoutineConsistency([]));
   }, []);
