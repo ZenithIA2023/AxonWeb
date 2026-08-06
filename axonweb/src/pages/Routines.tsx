@@ -266,7 +266,7 @@ function RoutineCard({
           className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition active:scale-[0.97] ${
             isActive
               ? "border-soft bg-surface-muted text-secondary"
-              : "border-emerald-300/20 bg-emerald-500/15 text-emerald-100"
+              : "border-emerald-300/25 bg-emerald-500/10 text-emerald-700 dark:border-emerald-300/20 dark:bg-emerald-500/15 dark:text-emerald-100"
           } ${busy || disabled ? "opacity-40" : ""}`}
         >
           {busy ? (
