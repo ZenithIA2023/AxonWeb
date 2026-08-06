@@ -151,9 +151,22 @@ const systemNotifications: NotificationItem[] = [
 // Página principal da conversa
 // ============================================================================
 
-export default function ChatConversation() {
+type ChatConversationPanelProps = {
+  conversationId?: string;
+  embedded?: boolean;
+  onBack?: () => void;
+  onOpenSidebar?: () => void;
+};
+
+export function ChatConversationPanel({
+  conversationId: controlledConversationId,
+  embedded = false,
+  onBack,
+  onOpenSidebar,
+}: ChatConversationPanelProps = {}) {
   const navigate = useNavigate();
-  const { chatId: conversationId } = useParams();
+  const { chatId } = useParams();
+  const conversationId = controlledConversationId ?? chatId;
 
   // Estados de navegação e modais da conversa atual.
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -250,12 +263,30 @@ export default function ChatConversation() {
   const result = results[resultKey];
   const isNotificationsChat = conversationId === "axon-notifications";
 
+  function handleBack() {
+    if (onBack) {
+      onBack();
+      return;
+    }
+
+    navigate("/chat");
+  }
+
+  function handleOpenSidebar() {
+    if (onOpenSidebar) {
+      onOpenSidebar();
+      return;
+    }
+
+    setIsSidebarOpen(true);
+  }
+
   // Rota interna que reaproveita o layout do chat como central de notificações.
   if (isNotificationsChat) {
     return (
       <NotificationsConversation
-        onBack={() => navigate("/chat")}
-        onOpenSidebar={() => setIsSidebarOpen(true)}
+        onBack={handleBack}
+        onOpenSidebar={handleOpenSidebar}
         isSidebarOpen={isSidebarOpen}
         onCloseSidebar={() => setIsSidebarOpen(false)}
         chronotypeLabel={result.label}
@@ -388,14 +419,14 @@ export default function ChatConversation() {
           .updateConversation(conversationId, { archived: true })
           .catch(() => null);
         setConfirmAction(null);
-        navigate("/chat");
+        handleBack();
         return;
       }
 
       if (confirmAction === "delete") {
         await api.deleteConversation(conversationId).catch(() => null);
         setConfirmAction(null);
-        navigate("/chat");
+        handleBack();
         return;
       }
     } finally {
@@ -448,21 +479,35 @@ export default function ChatConversation() {
 
   // Layout principal: header fixo, histórico scrollável, composer e modais globais.
   return (
-    <main className="relative h-[100dvh] overflow-hidden bg-app text-primary">
-      <AppBackground />
+    <main
+      className={
+        embedded
+          ? "relative h-full overflow-hidden bg-transparent text-primary"
+          : "relative h-[100dvh] overflow-hidden bg-app text-primary"
+      }
+    >
+      {!embedded && <AppBackground />}
 
-      <div className="relative z-10 flex h-full flex-col px-4 pb-4 pt-5">
+      <div
+        className={
+          embedded
+            ? "relative z-10 flex h-full flex-col px-4 pb-4 pt-4"
+            : "relative z-10 flex h-full flex-col px-4 pb-4 pt-5"
+        }
+      >
         <header className="mb-4 shrink-0">
           <div className="flex items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
-              <button
-                type="button"
-                onClick={() => navigate("/chat")}
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-soft bg-surface-muted text-secondary shadow-card backdrop-blur-2xl transition active:scale-[0.96]"
-                aria-label="Voltar"
-              >
-                <ArrowLeft className="h-5 w-5" />
-              </button>
+              {!embedded && (
+                <button
+                  type="button"
+                  onClick={handleBack}
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-soft bg-surface-muted text-secondary shadow-card backdrop-blur-2xl transition active:scale-[0.96]"
+                  aria-label="Voltar"
+                >
+                  <ArrowLeft className="h-5 w-5" />
+                </button>
+              )}
 
               <div className="min-w-0">
                 <p className="truncate text-base font-black leading-tight tracking-[-0.035em] text-primary">
@@ -486,7 +531,7 @@ export default function ChatConversation() {
 
               <button
                 type="button"
-                onClick={() => setIsSidebarOpen(true)}
+                onClick={handleOpenSidebar}
                 className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-soft bg-surface-muted text-secondary shadow-card backdrop-blur-2xl transition active:scale-[0.96]"
                 aria-label="Abrir menu"
               >
@@ -574,12 +619,14 @@ export default function ChatConversation() {
         </footer>
       </div>
 
-      <Sidebar
-        isOpen={isSidebarOpen}
-        onClose={() => setIsSidebarOpen(false)}
-        chronotypeLabel={result.label}
-        energyPeak={result.energyPeak}
-      />
+      {!embedded && (
+        <Sidebar
+          isOpen={isSidebarOpen}
+          onClose={() => setIsSidebarOpen(false)}
+          chronotypeLabel={result.label}
+          energyPeak={result.energyPeak}
+        />
+      )}
 
       <ChatOptionsSheet
         isOpen={isOptionsOpen}
@@ -636,6 +683,10 @@ export default function ChatConversation() {
       />
     </main>
   );
+}
+
+export default function ChatConversation() {
+  return <ChatConversationPanel />;
 }
 
 // ============================================================================

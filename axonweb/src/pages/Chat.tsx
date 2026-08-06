@@ -27,6 +27,7 @@ import {
 import { results, type ChronotypeResultKey } from "../data/results";
 import { ScrollArea } from "../components/ui/ScrollArea";
 import Sidebar from "../components/layout/Sidebar";
+import { ChatConversationPanel } from "./ChatConversation";
 import * as api from "../lib/api";
 import type { ConversationData } from "../lib/api";
 import AppBackground from "../components/layout/AppBackground";
@@ -154,6 +155,13 @@ function saveLastAccessMap(nextMap: LastAccessMap) {
   localStorage.setItem(CHAT_LAST_ACCESS_STORAGE_KEY, JSON.stringify(nextMap));
 }
 
+function isDesktopChatViewport() {
+  return (
+    typeof window !== "undefined" &&
+    window.matchMedia("(min-width: 1024px)").matches
+  );
+}
+
 // Fallback usado pela Sidebar quando o cronotipo salvo ainda não existe.
 const validKeys: ChronotypeResultKey[] = [
   "Matutino",
@@ -177,6 +185,9 @@ export default function Chat() {
   const [showIntroCard, setShowIntroCard] = useState(false);
   const [lastAccessByConversation, setLastAccessByConversation] =
     useState<LastAccessMap>(() => readLastAccessMap());
+  const [desktopConversationId, setDesktopConversationId] = useState<string | null>(
+    null
+  );
 
   /* --------------------------------------------------------------------------
    * Conversas
@@ -368,8 +379,61 @@ export default function Chat() {
       ? filteredProjectConversations
       : filteredConversations;
 
+  useEffect(() => {
+    if (!isDesktopChatViewport() || desktopConversationId || loadingConversations) {
+      return;
+    }
+
+    const firstConversation =
+      axonDirectConversation ??
+      sortConversationsByRecent([...looseConversations, ...projectConversations])[0];
+
+    if (firstConversation) {
+      setDesktopConversationId(firstConversation.id);
+    }
+  }, [
+    axonDirectConversation,
+    desktopConversationId,
+    loadingConversations,
+    looseConversations,
+    projectConversations,
+  ]);
+
   const visibleConversations = activeConversationList.slice(0, visibleCount);
   const hasMoreConversations = activeConversationList.length > visibleCount;
+
+  const defaultDesktopConversationId = useMemo(() => {
+    if (loadingConversations) return null;
+
+    const availableConversations = conversations.filter(
+      (conversation) => !conversation.archived
+    );
+
+    const lastUsedConversation = availableConversations
+      .map((conversation) => ({
+        conversation,
+        date: getConversationLastAccessDate(
+          conversation,
+          lastAccessByConversation[conversation.id]
+        ),
+      }))
+      .filter(
+        (item): item is { conversation: ConversationData; date: Date } =>
+          Boolean(item.date)
+      )
+      .sort((a, b) => b.date.getTime() - a.date.getTime())[0]?.conversation;
+
+    if (lastUsedConversation) {
+      return lastUsedConversation.id;
+    }
+
+    return axonDirectConversation?.id ?? null;
+  }, [
+    axonDirectConversation,
+    conversations,
+    lastAccessByConversation,
+    loadingConversations,
+  ]);
 
   /* --------------------------------------------------------------------------
    * Paginação simples da lista
@@ -387,6 +451,22 @@ export default function Chat() {
     }
   }, [view]);
 
+  useEffect(() => {
+    if (!isDesktopChatViewport()) return;
+    if (!defaultDesktopConversationId) return;
+
+    const currentConversationStillExists =
+      !!desktopConversationId &&
+      conversations.some(
+        (conversation) =>
+          conversation.id === desktopConversationId && !conversation.archived
+      );
+
+    if (currentConversationStillExists) return;
+
+    setDesktopConversationId(defaultDesktopConversationId);
+  }, [conversations, defaultDesktopConversationId, desktopConversationId]);
+
   /* --------------------------------------------------------------------------
    * Último acesso do usuário em uma conversa
    * -------------------------------------------------------------------------- */
@@ -403,6 +483,11 @@ export default function Chat() {
 
       return next;
     });
+
+    if (isDesktopChatViewport()) {
+      setDesktopConversationId(conversationId);
+      return;
+    }
 
     navigate(`/chat/${conversationId}`);
   }
@@ -442,6 +527,150 @@ export default function Chat() {
     }
   }
 
+  function renderDesktopChatItems() {
+    return (
+      <section className="space-y-2.5">
+        {loadingConversations || (view === "projects" && loadingProjects) ? (
+          <div className="rounded-[1.5rem] border border-soft bg-surface-muted p-5 text-center shadow-card">
+            <p className="text-sm text-muted">
+              {view === "projects"
+                ? "Carregando projetos..."
+                : "Carregando conversas..."}
+            </p>
+          </div>
+        ) : view === "projects" ? (
+          selectedProjectId && selectedProject ? (
+            <>
+              <SelectedProjectHeader
+                project={selectedProject}
+                conversationCount={activeConversationList.length}
+                onBack={() => setSelectedProjectId(null)}
+                onCreateConversation={() =>
+                  openCreateConversationModal(selectedProject.id)
+                }
+              />
+
+              {activeConversationList.length === 0 ? (
+                <EmptyState
+                  icon={MessageCircle}
+                  title="Nenhuma conversa neste projeto"
+                  description="Quando conversas forem adicionadas a este projeto, elas aparecerão aqui."
+                  actionLabel="Criar conversa"
+                  onAction={() => {
+                    if (selectedProjectId) {
+                      openCreateConversationModal(selectedProjectId);
+                    }
+                  }}
+                />
+              ) : (
+                <>
+                  {visibleConversations.map((conversation) => (
+                    <ConversationCard
+                      key={conversation.id}
+                      conversation={conversation}
+                      lastAccessedAt={lastAccessByConversation[conversation.id]}
+                      isSelected={desktopConversationId === conversation.id}
+                      onClick={() => openConversation(conversation.id)}
+                    />
+                  ))}
+
+                  {hasMoreConversations && (
+                    <button
+                      type="button"
+                      onClick={() => setVisibleCount((current) => current + 8)}
+                      className="mt-2 inline-flex min-h-11 w-full items-center justify-center rounded-2xl border border-soft bg-surface-muted px-5 text-xs font-black text-secondary transition active:scale-[0.98]"
+                    >
+                      Ver mais conversas
+                    </button>
+                  )}
+                </>
+              )}
+            </>
+          ) : filteredProjects.length === 0 ? (
+            <EmptyState
+              icon={Briefcase}
+              title="Nenhum projeto encontrado"
+              description="Crie projetos para reunir conversas relacionadas em um mesmo contexto."
+              actionLabel="Criar projeto"
+              onAction={() => openCreateConversationModal(null)}
+            />
+          ) : (
+            filteredProjects.map((project) => {
+              const localCount = projectConversations.filter(
+                (conversation) => getConversationProjectId(conversation) === project.id
+              ).length;
+
+              const count = project.conversation_count ?? localCount;
+
+              return (
+                <ProjectFolderCard
+                  key={project.id}
+                  project={project}
+                  count={count}
+                  onClick={() => setSelectedProjectId(project.id)}
+                  onCreateConversation={() => openCreateConversationModal(project.id)}
+                  onEdit={() => setProjectToEdit(project)}
+                  onDelete={() => setProjectToDelete(project)}
+                />
+              );
+            })
+          )
+        ) : activeConversationList.length === 0 && !axonDirectConversation ? (
+          <EmptyState
+            icon={MessageCircle}
+            title="Nenhuma conversa solta encontrada"
+            description="Conversas que pertencem a projetos aparecem apenas na aba Projetos."
+            actionLabel="Criar conversa"
+            onAction={() => openCreateConversationModal(null)}
+          />
+        ) : (
+          <>
+            {axonDirectConversation && (
+              <div className="space-y-2.5">
+                <AxonDirectConversationCard
+                  conversation={axonDirectConversation}
+                  lastAccessedAt={lastAccessByConversation[axonDirectConversation.id]}
+                  isSelected={desktopConversationId === axonDirectConversation.id}
+                  onClick={() => openConversation(axonDirectConversation.id)}
+                />
+
+                {visibleConversations.length > 0 && (
+                  <div className="flex items-center gap-3 px-1 py-1">
+                    <div className="h-px flex-1 bg-[var(--border-soft)]" />
+                    <span className="text-[0.58rem] font-black uppercase tracking-[0.16em] text-soft">
+                      Conversas regulares
+                    </span>
+                    <div className="h-px flex-1 bg-[var(--border-soft)]" />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {visibleConversations.map((conversation) => (
+              <ConversationCard
+                key={conversation.id}
+                conversation={conversation}
+                lastAccessedAt={lastAccessByConversation[conversation.id]}
+                isSelected={desktopConversationId === conversation.id}
+                onClick={() => openConversation(conversation.id)}
+              />
+            ))}
+
+            {hasMoreConversations && (
+              <button
+                type="button"
+                onClick={() => setVisibleCount((current) => current + 8)}
+                className="mt-2 inline-flex min-h-11 w-full items-center justify-center rounded-2xl border border-soft bg-surface-muted px-5 text-xs font-black text-secondary transition active:scale-[0.98]"
+              >
+                Ver mais conversas
+              </button>
+            )}
+          </>
+        )}
+      </section>
+    );
+  }
+
   /* --------------------------------------------------------------------------
    * Renderização
    * -------------------------------------------------------------------------- */
@@ -450,7 +679,7 @@ export default function Chat() {
     <main className="relative h-[100dvh] overflow-hidden bg-app text-primary">
       <AppBackground />
 
-      <div className="relative z-10 flex h-full flex-col px-4 pb-4 pt-5">
+      <div className="relative z-10 flex h-full flex-col px-4 pb-4 pt-5 lg:hidden">
         {/* Header fixo: retorno ao dashboard, criação rápida e menu lateral. */}
         <header className="mb-4 flex shrink-0 items-center justify-between">
           <button
@@ -655,6 +884,80 @@ export default function Chat() {
         </ScrollArea>
       </div>
 
+      <div className="relative z-10 hidden h-full grid-cols-[360px_minmax(0,1fr)] gap-4 px-5 py-5 lg:grid xl:grid-cols-[390px_minmax(0,1fr)]">
+        <aside className="flex min-h-0 flex-col overflow-hidden rounded-[2rem] border border-soft bg-surface-elevated text-primary shadow-soft backdrop-blur-2xl">
+          <div className="border-b border-[var(--border-soft)] px-4 pb-4 pt-4">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => navigate("/dashboard")}
+                className="flex min-w-0 items-center gap-3 text-left transition active:scale-[0.98]"
+              >
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-accent-soft bg-accent-soft text-accent shadow-card">
+                  <img
+                    src="/axon-logo.svg"
+                    alt="Axon"
+                    className="h-8 w-8 object-contain"
+                  />
+                </div>
+
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-black text-primary">
+                    Chat
+                  </p>
+                  <p className="truncate text-xs text-muted">
+                    Conversas e projetos
+                  </p>
+                </div>
+              </button>
+
+              <div className="flex shrink-0 items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    openCreateConversationModal(
+                      view === "projects" ? selectedProjectId : null
+                    )
+                  }
+                  className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[var(--accent-strong)] text-white shadow-card transition active:scale-[0.96]"
+                  aria-label="Nova conversa ou projeto"
+                >
+                  <Plus className="h-5 w-5" />
+                </button>
+
+              </div>
+            </div>
+
+            <ChatSearchPanel
+              search={search}
+              view={view}
+              isInsideProject={view === "projects" && Boolean(selectedProjectId)}
+              onSearchChange={setSearch}
+              onViewChange={setView}
+            />
+          </div>
+
+          <ScrollArea className="min-h-0 flex-1" contentClassName="px-4 py-4">
+            {renderDesktopChatItems()}
+          </ScrollArea>
+        </aside>
+
+        <section className="min-h-0 overflow-hidden rounded-[2rem] border border-soft bg-surface-elevated shadow-soft backdrop-blur-2xl">
+          {desktopConversationId ? (
+            <ChatConversationPanel
+              key={desktopConversationId}
+              conversationId={desktopConversationId}
+              embedded
+              onOpenSidebar={() => setIsSidebarOpen(true)}
+            />
+          ) : (
+            <DesktopChatEmptyPane
+              onCreate={() => openCreateConversationModal(null)}
+            />
+          )}
+        </section>
+      </div>
+
       {/* Sidebar global reaproveitada para navegação entre páginas do app. */}
       <Sidebar
         isOpen={isSidebarOpen}
@@ -680,7 +983,12 @@ export default function Chat() {
           setConversations((prev) => [conversationWithProject, ...prev]);
           setIsCreateModalOpen(false);
           setCreateConversationProjectId(null);
-          navigate(`/chat/${conv.id}`);
+
+          if (isDesktopChatViewport()) {
+            setDesktopConversationId(conv.id);
+          } else {
+            navigate(`/chat/${conv.id}`);
+          }
         }}
         onProjectCreated={(project) => {
           setProjects((prev) => [project, ...prev]);
@@ -906,11 +1214,13 @@ function ConversationCard({
   conversation,
   lastAccessedAt,
   isFixed = false,
+  isSelected = false,
   onClick,
 }: {
   conversation: ConversationData;
   lastAccessedAt?: string;
   isFixed?: boolean;
+  isSelected?: boolean;
   onClick: () => void;
 }) {
 
@@ -929,7 +1239,9 @@ function ConversationCard({
       type="button"
       onClick={onClick}
       className={`flex w-full items-center gap-3 rounded-[1.7rem] border p-4 text-left shadow-card backdrop-blur-2xl transition active:scale-[0.99] ${
-        isFixed
+        isSelected
+          ? "border-accent-soft bg-accent-soft"
+          : isFixed
           ? "border-accent-soft bg-accent-soft"
           : conversation.archived
             ? "border-soft bg-surface-muted opacity-70"
@@ -1001,10 +1313,12 @@ function ConversationCard({
 function AxonDirectConversationCard({
   conversation,
   lastAccessedAt,
+  isSelected = false,
   onClick,
 }: {
   conversation: ConversationData;
   lastAccessedAt?: string;
+  isSelected?: boolean;
   onClick: () => void;
 }) {
   const formattedDate = useMemo(
@@ -1016,7 +1330,9 @@ function AxonDirectConversationCard({
     <button
       type="button"
       onClick={onClick}
-      className="group relative flex w-full items-center gap-3 overflow-hidden rounded-[1.8rem] border border-accent-soft bg-surface-elevated p-4 text-left text-primary shadow-card backdrop-blur-2xl transition active:scale-[0.99]"
+      className={`group relative flex w-full items-center gap-3 overflow-hidden rounded-[1.8rem] border border-accent-soft p-4 text-left text-primary shadow-card backdrop-blur-2xl transition active:scale-[0.99] ${
+        isSelected ? "bg-accent-soft" : "bg-surface-elevated"
+      }`}
     >
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,var(--accent-soft),transparent_58%)]" />
 
@@ -1067,6 +1383,39 @@ function getConversationIcon(type: ConversationType) {
   if (type === "focus") return Focus;
   if (type === "project") return Briefcase;
   return MessageCircle;
+}
+
+/* ==========================================================================
+ * Estado vazio do painel desktop
+ * ========================================================================== */
+function DesktopChatEmptyPane({ onCreate }: { onCreate: () => void }) {
+  return (
+    <div className="flex h-full items-center justify-center px-8 py-8 text-center">
+      <div className="max-w-[26rem]">
+        <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-[1.4rem] border border-accent-soft bg-accent-soft text-accent shadow-card">
+          <MessageCircle className="h-7 w-7" />
+        </div>
+
+        <h2 className="text-[2rem] font-black leading-[0.96] tracking-[-0.055em] text-primary">
+          Escolha uma conversa.
+        </h2>
+
+        <p className="mx-auto mt-4 max-w-[21rem] text-sm leading-6 text-muted">
+          Selecione um chat ou projeto na coluna da esquerda para manter a
+          conversa aberta no painel principal.
+        </p>
+
+        <button
+          type="button"
+          onClick={onCreate}
+          className="mt-6 inline-flex min-h-12 items-center justify-center rounded-2xl bg-[var(--accent-strong)] px-6 text-sm font-black text-white shadow-card transition active:scale-[0.98]"
+        >
+          <Plus className="mr-2 h-4 w-4" />
+          Nova conversa
+        </button>
+      </div>
+    </div>
+  );
 }
 
 /* ==========================================================================
