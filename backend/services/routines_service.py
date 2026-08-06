@@ -118,6 +118,19 @@ def _compute_streak(user_id: str, items: list[dict], today: date) -> int:
     for t in res.data or []:
         by_date[str(t["scheduled_date"])].append(t["status"])
 
+    return _streak_from_by_date(by_date, today)
+
+
+def _streak_from_by_date(by_date: dict[str, list[str]], today: date) -> int:
+    """
+    Parte pura do streak: percorre de ontem para trás sobre um mapa
+    data -> status já carregado. Separada de _compute_streak para que quem
+    busca várias rotinas de uma vez (list_routines) reaproveite a lógica sem
+    uma consulta por rotina.
+    """
+    yesterday = today - timedelta(days=1)
+    lookback_start = today - timedelta(days=_STREAK_LOOKBACK_DAYS)
+
     streak = 0
     day = yesterday
     while day >= lookback_start:
@@ -161,27 +174,45 @@ def consistency_for_range(user_id: str, start: date, end: date) -> list[dict]:
     if not routines:
         return []
 
+    routine_ids = [r["id"] for r in routines]
+
+    # Três consultas no total, independente do número de rotinas. Antes eram
+    # 2 por rotina (itens + tarefas) — com 4 rotinas, 9 idas ao banco de ~105ms
+    # cada. O trabalho de agrupar é trivial em memória e não vale uma viagem
+    # de rede por rotina.
+    items = (
+        supabase.table("routine_items")
+        .select("id, routine_id")
+        .in_("routine_id", routine_ids)
+        .execute()
+    ).data or []
+
+    if not items:
+        return []
+
+    routine_by_item: dict[str, str] = {it["id"]: it["routine_id"] for it in items}
+
+    tasks = (
+        supabase.table("tasks")
+        .select("scheduled_date, status, routine_item_id")
+        .eq("user_id", user_id)
+        .in_("routine_item_id", list(routine_by_item.keys()))
+        .gte("scheduled_date", str(start))
+        .lte("scheduled_date", str(end))
+        .execute()
+    ).data or []
+
+    # rotina -> data -> [status...]
+    by_routine: dict[str, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
+    for t in tasks:
+        rid = routine_by_item.get(t.get("routine_item_id"))
+        if rid is None:
+            continue
+        by_routine[rid][str(t["scheduled_date"])].append(t["status"])
+
     out = []
     for r in routines:
-        items = _get_items(r["id"])
-        if not items:
-            continue
-
-        item_ids = [it["id"] for it in items]
-        res = (
-            supabase.table("tasks")
-            .select("scheduled_date, status")
-            .eq("user_id", user_id)
-            .in_("routine_item_id", item_ids)
-            .gte("scheduled_date", str(start))
-            .lte("scheduled_date", str(end))
-            .execute()
-        )
-
-        by_date: dict[str, list[str]] = defaultdict(list)
-        for t in res.data or []:
-            by_date[str(t["scheduled_date"])].append(t["status"])
-
+        by_date = by_routine.get(r["id"])
         if not by_date:
             continue  # nenhuma task gerada no intervalo: omite a rotina
 
@@ -546,12 +577,59 @@ def list_routines(user_id: str, today: date) -> list[dict]:
         .execute()
     ).data or []
 
+    if not routines:
+        return []
+
+    # Duas consultas no total (itens + tarefas), não duas POR rotina: com 4
+    # rotinas eram 9 idas ao banco de ~105ms cada só para montar esta lista.
+    routine_ids = [r["id"] for r in routines]
+
+    items = (
+        supabase.table("routine_items")
+        .select("id, routine_id")
+        .in_("routine_id", routine_ids)
+        .execute()
+    ).data or []
+
+    items_by_routine: dict[str, list[dict]] = defaultdict(list)
+    routine_by_item: dict[str, str] = {}
+    for it in items:
+        items_by_routine[it["routine_id"]].append(it)
+        routine_by_item[it["id"]] = it["routine_id"]
+
+    # Tarefas da janela do streak para TODAS as rotinas de uma vez.
+    tasks_by_routine: dict[str, dict[str, list[str]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
+    if routine_by_item:
+        yesterday = today - timedelta(days=1)
+        lookback_start = today - timedelta(days=_STREAK_LOOKBACK_DAYS)
+        tasks = (
+            supabase.table("tasks")
+            .select("scheduled_date, status, routine_item_id")
+            .eq("user_id", user_id)
+            .in_("routine_item_id", list(routine_by_item.keys()))
+            .gte("scheduled_date", str(lookback_start))
+            .lte("scheduled_date", str(yesterday))
+            .execute()
+        ).data or []
+        for t in tasks:
+            rid = routine_by_item.get(t.get("routine_item_id"))
+            if rid is None:
+                continue
+            tasks_by_routine[rid][str(t["scheduled_date"])].append(t["status"])
+
     out = []
     for r in routines:
-        items = _get_items(r["id"])
+        rid = r["id"]
+        routine_items = items_by_routine.get(rid, [])
         r = _serialize_routine(r)
-        r["item_count"] = len(items)
-        r["streak"] = _compute_streak(user_id, items, today)
+        r["item_count"] = len(routine_items)
+        r["streak"] = (
+            _streak_from_by_date(tasks_by_routine.get(rid, {}), today)
+            if routine_items
+            else 0
+        )
         out.append(r)
     return out
 

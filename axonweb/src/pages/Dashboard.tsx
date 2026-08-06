@@ -488,7 +488,12 @@ export default function Dashboard() {
     // UTC e, em UTC-3 após as 21h, devolveria a data de amanhã.
     const todayISO = new Date().toLocaleDateString("sv-SE");
     if (localStorage.getItem("axon_last_opened") === todayISO) return;
-    localStorage.setItem("axon_last_opened", todayISO);
+
+    // A marca é gravada só quando o pop-up REALMENTE abre. Gravar antes fazia
+    // com que abrir o app de manhã (quando ainda não há o que registrar)
+    // queimasse a única chance do dia — à noite o pop-up não vinha mais e o
+    // registro se perdia.
+    const markShown = () => localStorage.setItem("axon_last_opened", todayISO);
 
     Promise.all([
       api.getDailyLogYesterday().catch(() => null),
@@ -502,6 +507,7 @@ export default function Dashboard() {
         d.setDate(d.getDate() - 1);
         setAutoReviewDate(d.toLocaleDateString("sv-SE"));
         setAutoReviewOpen(true);
+        markShown();
         return;
       }
 
@@ -511,9 +517,16 @@ export default function Dashboard() {
         today?.mood_rating != null &&
         today?.productivity_rating != null;
 
-      if (!todayComplete) {
+      // Só pede o registro de HOJE quando o dia já rendeu algo para avaliar.
+      // Abrir de manhã não faz sentido: o usuário ainda não tem como dizer
+      // como foi a produtividade do dia, e o pop-up vira ruído logo na
+      // abertura do app. À noite (18h+) é quando o registro é respondível —
+      // mesmo horário em que o card "Revisar dia" aparece.
+      const REVIEW_HOUR = 18;
+      if (!todayComplete && new Date().getHours() >= REVIEW_HOUR) {
         setAutoReviewDate(undefined); // sem targetDate = hoje
         setAutoReviewOpen(true);
+        markShown();
       }
     });
   }, []);

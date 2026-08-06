@@ -1,15 +1,15 @@
-from datetime import datetime, date, timezone
-from zoneinfo import ZoneInfo
+from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from auth_helper import get_current_user
 from database import supabase
 from services import chronotype as chronotype_service, calibration_service, routines_service
+from services import user_tz as user_tz_service
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
-# Fuso usado para calcular saudação e curva de energia do usuário.
-_TZ = ZoneInfo("America/Sao_Paulo")
+# (Havia aqui um _TZ fixo em America/Sao_Paulo. Removido: saudação, curva de
+# energia e "hoje" agora saem do fuso do próprio usuário — ver user_tz.)
 
 # Cronotipos em português (vindos do questionário) -> chave das curvas de energia.
 _CURVE_KEY = {
@@ -45,7 +45,10 @@ def _greeting(hour: int) -> str:
 
 
 @router.get("/")
-def get_dashboard(current_user: dict = Depends(get_current_user)):
+def get_dashboard(
+    current_user: dict = Depends(get_current_user),
+    x_timezone: str | None = Header(None, alias="X-Timezone"),
+):
     user_id = current_user["id"]
 
     profile = (
@@ -64,7 +67,10 @@ def get_dashboard(current_user: dict = Depends(get_current_user)):
     )
     curve_key = _CURVE_KEY.get(chronotype or "intermediate", "intermediate")
 
-    now = datetime.now(_TZ)
+    # Fuso do usuário, não do servidor: com _TZ fixo (São Paulo) a saudação e
+    # a curva de energia saíam erradas para quem está em outro fuso.
+    tz = user_tz_service.zone(user_tz_service.resolve(user_id, x_timezone))
+    now = datetime.now(tz)
     hour = now.hour
     ctx = chronotype_service.get_chronotype_context(curve_key, hour)
 
@@ -78,7 +84,9 @@ def get_dashboard(current_user: dict = Depends(get_current_user)):
 
     # Busca todas as tarefas de hoje com horário definido — usadas para enriquecer
     # os blocos de foco com as tarefas reais que o usuário deveria estar fazendo.
-    todays_tasks = _fetch_tasks_with_times(user_id, str(date.today()))
+    # "Hoje" no fuso do USUÁRIO: com date.today() (UTC do servidor), quem está
+    # em UTC-3 via as tarefas do dia seguinte já às 21h.
+    todays_tasks = _fetch_tasks_with_times(user_id, str(now.date()))
 
     return {
         "greeting": f"{_greeting(hour)}, {data['name']}" if data.get("name") else _greeting(hour),
@@ -98,6 +106,23 @@ def get_dashboard(current_user: dict = Depends(get_current_user)):
         "day_blocks": _today_blocks(curve_key, todays_tasks),
         "routine_consistency": routines_service.weekly_consistency(user_id, now.date()),
     }
+
+
+@router.get("/routine-consistency")
+def get_routine_consistency(
+    current_user: dict = Depends(get_current_user),
+    x_timezone: str | None = Header(None, alias="X-Timezone"),
+):
+    """
+    Só a consistência das rotinas da semana. Existe porque a aba Insights
+    precisa apenas deste dado e chamava `GET /dashboard/` inteiro para obtê-lo
+    — pagando por perfil, calibração, tarefas do dia e blocos de foco que ela
+    descarta.
+    """
+    user_id = current_user["id"]
+    tz = user_tz_service.zone(user_tz_service.resolve(user_id, x_timezone))
+    today = datetime.now(tz).date()
+    return {"routine_consistency": routines_service.weekly_consistency(user_id, today)}
 
 
 def _latest_unseen_report(user_id: str, period_type: str) -> dict | None:

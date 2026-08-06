@@ -404,6 +404,14 @@ export function getDashboard() {
   return request<DashboardData>("/dashboard/");
 }
 
+// Versão enxuta para telas que só precisam da consistência das rotinas (aba
+// Insights) — evita carregar todo o payload do dashboard à toa.
+export function getRoutineConsistency() {
+  return request<{ routine_consistency: RoutineConsistency[] }>(
+    "/dashboard/routine-consistency"
+  );
+}
+
 export interface PeriodReportData {
   period_start: string;
   period_end: string;
