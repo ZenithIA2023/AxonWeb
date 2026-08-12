@@ -29,11 +29,16 @@ def list_tasks(
 @router.post("", response_model=TaskResponse, status_code=201)
 def create_task(
     body: TaskCreate,
+    x_timezone: Optional[str] = Header(default=None),
     current_user: dict = Depends(get_current_user),
 ):
     try:
+        # O fuso só importa para "Axon decide": sem ele, o slot escolhido para
+        # hoje poderia cair num horário já passado.
+        tz_name = user_tz.resolve(current_user["id"], x_timezone)
         return tasks_service.create_task(
-            current_user["id"], body.model_dump(exclude_none=True)
+            current_user["id"], body.model_dump(exclude_none=True),
+            now=datetime.now(user_tz.zone(tz_name)),
         )
     except ValueError as e:
         raise HTTPException(status_code=500, detail=str(e))

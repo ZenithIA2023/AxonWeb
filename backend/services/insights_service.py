@@ -20,6 +20,11 @@ MIN_DATA_POINTS = 7
 LOOKBACK_DAYS = 30
 # Validade do cache.
 CACHE_TTL_HOURS = 24
+# Quantos insights são exibidos, no máximo. Interpolado no prompt E aplicado no
+# parse — se só o prompt pedisse, o modelo poderia devolver mais; se só o parse
+# cortasse, o excedente seria descartado em silêncio (era o caso: o modelo
+# enxergava 14 padrões e o backend jogava 9 fora).
+MAX_INSIGHTS = 8
 
 _WEEKDAY_FULL = [
     "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"
@@ -27,7 +32,7 @@ _WEEKDAY_FULL = [
 
 SYSTEM_PROMPT = """Você é o Axon, um analista pessoal de cronobiologia e produtividade. Recebe os dados diários de UM usuário das últimas semanas: dia da semana, horário e horas estimadas de sono, qualidade do sono, humor e produtividade percebida (escalas de 1 a 5), se houve exercício, quantas tarefas concluiu por dia, as etiquetas que o usuário escolheu para descrever o sono/humor/produtividade daquele dia (sleep_tags, mood_tags, productivity_tags) e em quais períodos ele se sentiu mais produtivo (periodos_de_pico).
 
-Sua tarefa: identificar de 3 a 5 padrões REAIS, específicos e acionáveis nos dados — de preferência correlações entre hábitos e resultados (ex.: horas de sono × tarefas concluídas, horário de dormir × humor, exercício × produtividade percebida, etiquetas recorrentes × produtividade, dia da semana × qualquer resultado).
+Sua tarefa: identificar de 3 a {MAX_INSIGHTS} padrões REAIS, específicos e acionáveis nos dados — de preferência correlações entre hábitos e resultados (ex.: horas de sono × tarefas concluídas, horário de dormir × humor, exercício × produtividade percebida, etiquetas recorrentes × produtividade, dia da semana × qualquer resultado). Priorize os mais acionáveis: se encontrar mais de {MAX_INSIGHTS}, devolva os {MAX_INSIGHTS} melhores.
 
 Regras importantes:
 - Baseie-se EXCLUSIVAMENTE nos dados fornecidos. Nunca invente números nem fatos.
@@ -39,7 +44,7 @@ Regras importantes:
 - Cada insight tem um "title" curto (até ~60 caracteres) e um "detail" de 1 a 2 frases.
 
 Responda APENAS com JSON válido, sem nenhum texto fora dele, neste formato:
-[{"title": "...", "detail": "...", "type": "sleep|productivity|mood|habit|general"}]"""
+[{{"title": "...", "detail": "...", "type": "sleep|productivity|mood|habit|general"}}]""".format(MAX_INSIGHTS=MAX_INSIGHTS)
 
 
 def _local_date(ts: str | None, tz) -> date | None:
@@ -198,7 +203,7 @@ def parse_insights(text: str) -> list[dict]:
             itype = "general"
         out.append({"title": title, "detail": detail, "type": itype})
 
-    return out[:5]
+    return out[:MAX_INSIGHTS]
 
 
 def is_fresh(generated_at: str | None, now: datetime, ttl_hours: int = CACHE_TTL_HOURS) -> bool:
@@ -215,11 +220,23 @@ def is_fresh(generated_at: str | None, now: datetime, ttl_hours: int = CACHE_TTL
 
 
 def generate_insights(rows: list[dict]) -> list[dict]:
-    """Chama o Claude e devolve a lista de insights já parseada."""
+    """
+    Chama o Claude e devolve a lista de insights já parseada.
+
+    Sem thinking de propósito: medido nos dados reais, o raciocínio adaptativo
+    consumia ~14k tokens de saída e devolvia MENOS padrões que a versão direta
+    (10 contra 14), porque pensar e escrever dividem o mesmo orçamento. Com o
+    max_tokens de 4096 do padrão, o raciocínio o esgotava antes de a resposta
+    começar e a aba não exibia insight nenhum. O `max_tokens` folgado aqui é
+    para caber os {MAX_INSIGHTS} insights com conforto — o custo real é o texto
+    gerado (~1,7k tokens), não o teto.
+    """
     user_message = build_user_message(rows)
     text = claude_service.call_chat(
         messages=[{"role": "user", "content": user_message}],
         system_prompt=SYSTEM_PROMPT,
+        thinking=False,
+        max_tokens=8192,
     )
     return parse_insights(text)
 

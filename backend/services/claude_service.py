@@ -16,18 +16,46 @@ def _text_from_content(content) -> str:
     return "".join(b.text for b in content if getattr(b, "type", None) == "text")
 
 
-def call_chat(messages: list[dict], system_prompt) -> str:
+def call_chat(
+    messages: list[dict],
+    system_prompt,
+    *,
+    thinking: bool = True,
+    max_tokens: int = 4096,
+) -> str:
+    """
+    Chamada simples ao Claude, devolvendo só o texto.
+
+    `thinking=False` desliga o raciocínio adaptativo. Existe para as chamadas
+    que só produzem JSON estruturado a partir de dados já calculados, onde o
+    raciocínio custava caro sem melhorar o resultado: nos insights ele consumia
+    ~14k tokens e devolvia MENOS padrões que a versão sem thinking (10 contra
+    14), porque o orçamento de tokens é compartilhado entre pensar e escrever —
+    o raciocínio chegava a esgotá-lo antes da resposta começar, e a aba exibia
+    "não foi possível gerar insights". O chat mantém o padrão (thinking ligado).
+    """
     client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+    kwargs = {"thinking": {"type": "adaptive"}} if thinking else {}
     response = client.messages.create(
         model=_MODEL,
-        max_tokens=4096,
+        max_tokens=max_tokens,
         system=system_prompt,
-        thinking={"type": "adaptive"},
         messages=messages,
+        **kwargs,
     )
     if response.stop_reason == "refusal":
         return "Desculpe, não consigo ajudar com esse pedido específico. Podemos tentar outra coisa?"
-    return _text_from_content(response.content)
+
+    text = _text_from_content(response.content)
+    # Sem esta checagem, um corte por max_tokens vira string vazia silenciosa: o
+    # parse devolve [], o endpoint mostra "não foi possível gerar" e nada indica
+    # a causa. Foi assim que o bug dos insights passou despercebido.
+    if not text and response.stop_reason == "max_tokens":
+        raise RuntimeError(
+            f"Resposta cortada por max_tokens ({max_tokens}) antes de gerar texto "
+            f"— aumente max_tokens ou desligue o thinking nesta chamada."
+        )
+    return text
 
 
 def stream_chat(messages: list[dict], system_prompt: str):

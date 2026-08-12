@@ -646,7 +646,8 @@ def execute_tool(name: str, tool_input: dict, user_id: str, tz_name: str | None 
 
         if name == "criar_tarefa":
             task = tasks_service.create_task(
-                user_id, {**tool_input, "created_by": "agent"}
+                user_id, {**tool_input, "created_by": "agent"},
+                now=datetime.now(user_tz.zone(tz_name)),
             )
             _notify_task_change(user_id, 0, task)
             return {"ok": True, "task": task}
@@ -692,7 +693,8 @@ def execute_tool(name: str, tool_input: dict, user_id: str, tz_name: str | None 
         # --- Rotinas -------------------------------------------------------
         if name in ("criar_rotina", "pausar_rotina", "retomar_rotina",
                     "deletar_rotina", "listar_rotinas"):
-            today = datetime.now(user_tz.zone(tz_name)).date()
+            now = datetime.now(user_tz.zone(tz_name))
+            today = now.date()
 
             if name == "criar_rotina":
                 data = {
@@ -701,12 +703,12 @@ def execute_tool(name: str, tool_input: dict, user_id: str, tz_name: str | None 
                     "start_date": _resolve_to_date(tool_input.get("start_date"), today),
                     "end_date": _resolve_to_date(tool_input.get("end_date"), today),
                 }
-                routine = routines_service.create_routine(user_id, data, today)
+                routine = routines_service.create_routine(user_id, data, today, now=now)
                 _notify_routine_change(user_id, "criar", routine)
                 return {"ok": True, "routine": routine}
 
             if name == "listar_rotinas":
-                routines = routines_service.list_routines(user_id, today)
+                routines = routines_service.list_routines(user_id, today, now=now)
                 return {"ok": True, "count": len(routines), "routines": routines}
 
             if name == "pausar_rotina":
@@ -721,7 +723,7 @@ def execute_tool(name: str, tool_input: dict, user_id: str, tz_name: str | None 
 
             if name == "retomar_rotina":
                 routine = routines_service.resume_routine(
-                    user_id, tool_input["routine_id"], today
+                    user_id, tool_input["routine_id"], today, now=now
                 )
                 _notify_routine_change(user_id, "retomar", routine)
                 return {"ok": True, "routine": routine}
