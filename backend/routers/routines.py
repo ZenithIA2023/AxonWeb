@@ -18,10 +18,15 @@ from services import routines_service, user_tz
 router = APIRouter(prefix="/routines", tags=["routines"])
 
 
-def _today(user_id: str, x_timezone: str | None):
-    """Data de hoje no fuso do usuário (mesmo padrão de daily_log/dashboard)."""
+def _now(user_id: str, x_timezone: str | None) -> datetime:
+    """Instante atual no fuso do usuário (mesmo padrão de daily_log/dashboard)."""
     tz_name = user_tz.resolve(user_id, x_timezone)
-    return datetime.now(user_tz.zone(tz_name)).date()
+    return datetime.now(user_tz.zone(tz_name))
+
+
+def _today(user_id: str, x_timezone: str | None):
+    """Data de hoje no fuso do usuário."""
+    return _now(user_id, x_timezone).date()
 
 
 def _handle(e: ValueError):
@@ -42,8 +47,8 @@ def renew_all(
     Chamado pelo app na abertura (ou silenciosamente via GET /routines).
     """
     uid = current_user["id"]
-    today = _today(uid, x_timezone)
-    renewed = routines_service.renew_routines(uid, today)
+    now = _now(uid, x_timezone)
+    renewed = routines_service.renew_routines(uid, now.date(), now=now)
     return {"renewed": renewed}
 
 
@@ -54,9 +59,8 @@ def list_routines(
     x_timezone: str | None = Header(default=None),
     current_user: dict = Depends(get_current_user),
 ):
-    return routines_service.list_routines(
-        current_user["id"], _today(current_user["id"], x_timezone)
-    )
+    now = _now(current_user["id"], x_timezone)
+    return routines_service.list_routines(current_user["id"], now.date(), now=now)
 
 
 @router.post("", response_model=RoutineResponse, status_code=201)
@@ -66,8 +70,9 @@ def create_routine(
     current_user: dict = Depends(get_current_user),
 ):
     try:
+        now = _now(current_user["id"], x_timezone)
         return routines_service.create_routine(
-            current_user["id"], body.model_dump(), _today(current_user["id"], x_timezone)
+            current_user["id"], body.model_dump(), now.date(), now=now
         )
     except ValueError as e:
         _handle(e)
@@ -129,9 +134,9 @@ def resume_routine(
     current_user: dict = Depends(get_current_user),
 ):
     try:
+        now = _now(current_user["id"], x_timezone)
         return routines_service.resume_routine(
-            current_user["id"], routine_id,
-            _today(current_user["id"], x_timezone),
+            current_user["id"], routine_id, now.date(), now=now
         )
     except ValueError as e:
         _handle(e)
@@ -161,8 +166,9 @@ def add_item(
     current_user: dict = Depends(get_current_user),
 ):
     try:
+        now = _now(current_user["id"], x_timezone)
         return routines_service.add_item(
-            current_user["id"], routine_id, body.model_dump(), _today(current_user["id"], x_timezone)
+            current_user["id"], routine_id, body.model_dump(), now.date(), now=now
         )
     except ValueError as e:
         _handle(e)
@@ -177,9 +183,10 @@ def update_item(
     current_user: dict = Depends(get_current_user),
 ):
     try:
+        now = _now(current_user["id"], x_timezone)
         return routines_service.update_item(
             current_user["id"], routine_id, item_id, body.model_dump(exclude_unset=True),
-            _today(current_user["id"], x_timezone),
+            now.date(), now=now,
         )
     except ValueError as e:
         _handle(e)

@@ -111,6 +111,48 @@ BLOCK_LEVELS: dict[str, dict] = {
 }
 
 # ---------------------------------------------------------------------------
+# Onde o Axon PODE colocar uma tarefa, por prioridade
+# ---------------------------------------------------------------------------
+#
+# Vale só para horários escolhidos pelo AXON — sugestões de troca e "Axon
+# decide". O que o usuário marca manualmente nunca passa por aqui: ele agenda
+# o que quiser, onde quiser.
+#
+# A matriz é um PISO, não um teto: define o bloco mais fraco aceitável para
+# cada prioridade, e qualquer bloco melhor continua permitido. Ou seja, ela
+# impede que tarefa chave/alta desça para blocos fracos — não impede tarefa
+# simples de aproveitar um pico que está sobrando. Como a busca sempre tenta
+# os melhores blocos primeiro, uma tarefa baixa só chega ao foco leve quando
+# todo o resto está ocupado.
+#
+# `sono` e `recuperacao` estão fora de todas as listas: são o gatilho da
+# sugestão, nunca o destino.
+
+_ALL_GOOD = ("pico", "foco_profundo", "foco_moderado", "foco_leve")
+
+ALLOWED_BLOCKS: dict[str, tuple[str, ...]] = {
+    "key":    ("pico", "foco_profundo"),                    # tarefa chave
+    "high":   ("pico", "foco_profundo", "foco_moderado"),
+    "medium": _ALL_GOOD,
+    "low":    _ALL_GOOD,
+}
+
+# Ordem de preferência ao escolher um horário: melhor bloco primeiro.
+BLOCK_PREFERENCE: tuple[str, ...] = _ALL_GOOD
+
+
+def allowed_blocks(priority: str | None, is_key_task: bool = False) -> tuple[str, ...]:
+    """
+    Blocos em que o Axon pode agendar uma tarefa, do melhor para o pior.
+
+    `is_key_task` tem precedência sobre `priority` (toda tarefa chave é salva
+    com priority='high', mas a restrição dela é mais estrita).
+    """
+    if is_key_task:
+        return ALLOWED_BLOCKS["key"]
+    return ALLOWED_BLOCKS.get(priority or "medium", _ALL_GOOD)
+
+# ---------------------------------------------------------------------------
 # Blocos de 90 minutos — 16 blocos cobrem as 24h do dia.
 # Índice → horário de início: 0=00:00, 1=01:30, 2=03:00, 3=04:30, 4=06:00,
 # 5=07:30, 6=09:00, 7=10:30, 8=12:00, 9=13:30, 10=15:00, 11=16:30,

@@ -15,7 +15,7 @@ de conflito) é a Fase 3.
 """
 
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from database import supabase
 from services import calendar_sync, chronotype, calibration_service
@@ -324,18 +324,38 @@ def _free_slot(
     not_before_min: int | None = None,
     not_after_min: int | None = None,
     personal_scores: list[float] | None = None,
+    floor_min: int | None = None,
+    allowed_levels: tuple[str, ...] | None = None,
 ) -> tuple[str, str] | None:
     """
     Melhor slot livre de `duration_minutes` no dia, respeitando opcionalmente
     uma janela [not_before_min, not_after_min).
 
+    `floor_min` é o minuto mais cedo aceitável — usado para o dia de HOJE, onde
+    agendar num horário que já passou não faz sentido nenhum. Diferente de
+    `not_before`, ele não é preferência do usuário: é um limite físico, e por
+    isso vale inclusive no fallback do passo 3.
+
+    `allowed_levels` restringe os níveis de bloco aceitáveis pela prioridade da
+    tarefa (ver chronotype.allowed_blocks). Só o passo 1 o respeita: os passos
+    2-4 são fallbacks para quando NADA cabe, e ali um horário fraco é melhor
+    que devolver None e deixar a tarefa sem horário nenhum. Usado pelo "Axon
+    decide"; a geração de rotinas não passa isso, porque lá o horário do item
+    é escolha do usuário.
+
+    Nota: hoje `allowed_levels` e a janela `not_before/not_after` nunca chegam
+    juntos — a janela só existe em routine_items, que não usa a matriz. Se um
+    dia usarem, decida qual vence: a janela é preferência do usuário, a matriz
+    é regra do Axon.
+
     Quando `personal_scores` é fornecido (perfil calibrado do usuário), ordena
     os blocos pelo score pessoal em vez do nível fixo do cronotipo.
 
-    Estratégia em três passos:
-      1. Melhor bloco de energia dentro da janela.
+    Estratégia em quatro passos:
+      1. Melhor bloco de energia dentro da janela (respeita allowed_levels).
       2. Qualquer slot livre dentro da janela (sem filtro de energia).
-      3. Fallback sem restrição de janela.
+      3. Fallback sem restrição de janela (mas sempre respeitando floor_min).
+      4. Varredura minuto a minuto a partir do piso.
     """
     blocks = chronotype.CHRONOTYPE_BLOCKS.get(
         curve_key, chronotype.CHRONOTYPE_BLOCKS["intermediate"]
@@ -345,17 +365,25 @@ def _free_slot(
     else:
         ranked = sorted(range(len(blocks)), key=lambda i: (-_block_energy(blocks[i][0]), i))
 
-    def _fits(start: int, end: int) -> bool:
-        if end > _DAY_MINUTES:
+    # O piso de "agora" nunca é relaxado; a janela do usuário pode ser.
+    lower_bound = floor_min or 0
+
+    def _free(start: int, end: int) -> bool:
+        if end > _DAY_MINUTES or start < lower_bound:
             return False
+        return not any(_overlap(start, end, bs, be) for bs, be in busy)
+
+    def _fits(start: int, end: int) -> bool:
         if not_before_min is not None and start < not_before_min:
             return False
         if not_after_min is not None and end > not_after_min:
             return False
-        return not any(_overlap(start, end, bs, be) for bs, be in busy)
+        return _free(start, end)
 
     # Passo 1 — melhor bloco de energia dentro da janela
     for i in ranked:
+        if allowed_levels is not None and blocks[i][0] not in allowed_levels:
+            continue
         start = i * 90
         end = start + duration_minutes
         if _fits(start, end):
@@ -363,21 +391,25 @@ def _free_slot(
 
     # Passo 2 — qualquer slot livre dentro da janela (minuto a minuto)
     if not_before_min is not None or not_after_min is not None:
-        window_start = not_before_min or 0
+        window_start = max(not_before_min or 0, lower_bound)
         window_end = not_after_min or _DAY_MINUTES
         for start in range(window_start, window_end - duration_minutes + 1):
-            end = start + duration_minutes
-            if not any(_overlap(start, end, bs, be) for bs, be in busy):
-                return _min_to_hhmm(start), _min_to_hhmm(end)
+            if _free(start, start + duration_minutes):
+                return _min_to_hhmm(start), _min_to_hhmm(start + duration_minutes)
 
-    # Passo 3 — fallback sem restrição de janela
+    # Passo 3 — fallback sem restrição de janela nem de matriz. Aqui nada
+    # permitido coube: um horário fraco ainda é melhor que nenhum horário.
     for i in ranked:
         start = i * 90
-        end = start + duration_minutes
-        if end > _DAY_MINUTES:
-            continue
-        if not any(_overlap(start, end, bs, be) for bs, be in busy):
-            return _min_to_hhmm(start), _min_to_hhmm(end)
+        if _free(start, start + duration_minutes):
+            return _min_to_hhmm(start), _min_to_hhmm(start + duration_minutes)
+
+    # Passo 4 — com piso ativo, os blocos de 90min podem estar todos abaixo dele
+    # (ex.: rotina criada às 23h). Tenta a partir do próprio piso antes de desistir.
+    if floor_min is not None:
+        for start in range(lower_bound, _DAY_MINUTES - duration_minutes + 1):
+            if _free(start, start + duration_minutes):
+                return _min_to_hhmm(start), _min_to_hhmm(start + duration_minutes)
 
     return None
 
@@ -398,19 +430,34 @@ def _busy_intervals(user_id: str, day: date) -> list[tuple[int, int]]:
     return out
 
 
-def pick_best_slot(user_id: str, day: date, duration_minutes: int) -> tuple[str, str] | None:
+def pick_best_slot(
+    user_id: str, day: date, duration_minutes: int, now: datetime | None = None,
+    priority: str | None = None, is_key_task: bool = False,
+) -> tuple[str, str] | None:
     """
     Melhor horário para uma tarefa flexível de `duration_minutes` em `day`.
     Usa o perfil personalizado quando calibrado (14+ dias); caso contrário,
     usa o cronotipo base.
+
+    Com `now` (instante local do usuário), o slot escolhido para HOJE nunca cai
+    num horário que já passou.
+
+    `priority`/`is_key_task` aplicam a matriz de prioridade: o Axon não coloca
+    tarefa chave em bloco fraco. Como aqui é o AXON que escolhe o horário, a
+    mesma regra das sugestões vale (ver chronotype.allowed_blocks).
     """
     curve_key, chronotype_label = _user_curve(user_id)
     personal, calibrated, _ = calibration_service.get_block_scores(user_id, chronotype_label)
+    floor_min = (
+        now.hour * 60 + now.minute if now is not None and now.date() == day else None
+    )
     return _free_slot(
         curve_key,
         duration_minutes,
         _busy_intervals(user_id, day),
         personal_scores=personal if calibrated else None,
+        floor_min=floor_min,
+        allowed_levels=chronotype.allowed_blocks(priority, is_key_task),
     )
 
 
@@ -422,13 +469,24 @@ def _materialize(
     *,
     curve_key: str,
     personal_scores: list[float] | None = None,
+    now: datetime | None = None,
 ) -> list[dict]:
     """
     Cria as tarefas concretas dos `items` no intervalo [from_date, until_date]
     e as insere em lote. Não atualiza generated_until (quem chama decide).
+
+    `now` é o instante local do usuário e existe para uma regra só: o Axon não
+    pode agendar nada num horário que já passou. Uma rotina criada às 14h com
+    item das 06h gerava a tarefa de hoje às 06h — passada há 8 horas. Com `now`
+    definido, no dia de hoje os itens fixos cuja janela já terminou são pulados
+    e os flexíveis só recebem slots a partir de agora. Os demais dias do
+    intervalo não são afetados.
     """
     if not items or from_date > until_date:
         return []
+
+    today_str = str(now.date()) if now else None
+    now_min = (now.hour * 60 + now.minute) if now else 0
 
     # Pré-carrega os horários já ocupados em todo o intervalo, agrupados por dia.
     existing = (
@@ -453,6 +511,9 @@ def _materialize(
     while day <= until_date:
         weekday = day.weekday()  # 0=Seg … 6=Dom
         dstr = str(day)
+        # Só o dia de hoje tem passado; ontem já não é gerado e amanhã é todo futuro.
+        floor_min = now_min if dstr == today_str else None
+
         for it in ordered:
             if weekday not in (it.get("days_of_week") or []):
                 continue
@@ -462,6 +523,11 @@ def _materialize(
             if it.get("start_time"):
                 start_s = str(it["start_time"])[:5]
                 end_s = str(it["end_time"])[:5]
+                # Item fixo não pode ser remanejado (o horário É a rotina), então
+                # a única saída é não gerar hoje. Usa o FIM da janela: uma tarefa
+                # das 14h às 15h criada às 14h30 ainda é aproveitável.
+                if floor_min is not None and _to_min(end_s) <= floor_min:
+                    continue
             else:
                 nb = it.get("not_before")
                 na = it.get("not_after")
@@ -471,6 +537,7 @@ def _materialize(
                     curve_key, it["duration_minutes"], busy_by_date[dstr],
                     not_before_min=nb_min, not_after_min=na_min,
                     personal_scores=personal_scores,
+                    floor_min=floor_min,
                 )
                 if slot is None:
                     continue  # dia sem janela livre para esse item — pula
@@ -498,11 +565,15 @@ def _materialize(
 
 
 def generate_tasks_for_routine(
-    routine_id: str, user_id: str, from_date: date, until_date: date
+    routine_id: str, user_id: str, from_date: date, until_date: date,
+    now: datetime | None = None,
 ) -> list[dict]:
     """
     Gera as tarefas de TODOS os itens da rotina no intervalo e avança
     generated_until para until_date. Usada na criação e na renovação (Fase 5).
+
+    `now` (instante local do usuário) impede que o dia de hoje receba tarefas
+    em horários já passados — ver _materialize.
     """
     _get_owned_routine(user_id, routine_id)
     items = _get_items(routine_id)
@@ -514,6 +585,7 @@ def generate_tasks_for_routine(
         user_id, items, from_date, until_date,
         curve_key=curve_key,
         personal_scores=personal if calibrated else None,
+        now=now,
     )
 
     supabase.table("routines").update(
@@ -525,7 +597,7 @@ def generate_tasks_for_routine(
 
 # --- Renovação automática (Fase 5) ---------------------------------------
 
-def renew_routines(user_id: str, today: date) -> int:
+def renew_routines(user_id: str, today: date, now: datetime | None = None) -> int:
     """
     Renova automaticamente as rotinas ativas cujo horizonte de geração vence em
     menos de 30 dias. Chamado silenciosamente em list_routines (verificação lazy).
@@ -559,7 +631,7 @@ def renew_routines(user_id: str, today: date) -> int:
             until_date = min(until_date, end)
 
         if from_date <= until_date:
-            generate_tasks_for_routine(r["id"], user_id, from_date, until_date)
+            generate_tasks_for_routine(r["id"], user_id, from_date, until_date, now=now)
             renewed += 1
 
     return renewed
@@ -567,8 +639,8 @@ def renew_routines(user_id: str, today: date) -> int:
 
 # --- CRUD rotinas --------------------------------------------------------
 
-def list_routines(user_id: str, today: date) -> list[dict]:
-    renew_routines(user_id, today)  # renovação lazy ao abrir o app
+def list_routines(user_id: str, today: date, now: datetime | None = None) -> list[dict]:
+    renew_routines(user_id, today, now=now)  # renovação lazy ao abrir o app
     routines = (
         supabase.table("routines")
         .select("*")
@@ -642,7 +714,7 @@ def get_routine(user_id: str, routine_id: str, today: date) -> dict:
     return routine
 
 
-def create_routine(user_id: str, data: dict, today: date) -> dict:
+def create_routine(user_id: str, data: dict, today: date, now: datetime | None = None) -> dict:
     start = data.get("start_date") or today
     payload = {
         "user_id": user_id,
@@ -679,7 +751,7 @@ def create_routine(user_id: str, data: dict, today: date) -> dict:
         # hoje ou do início (o que vier depois). Atualiza generated_until.
         gen_from = max(start, today)
         gen_until = gen_from + timedelta(days=GENERATION_HORIZON_DAYS)
-        generate_tasks_for_routine(routine_id, user_id, gen_from, gen_until)
+        generate_tasks_for_routine(routine_id, user_id, gen_from, gen_until, now=now)
 
     return get_routine(user_id, routine_id, today)
 
@@ -746,7 +818,7 @@ def pause_routine(
     return get_routine(user_id, routine_id, today)
 
 
-def resume_routine(user_id: str, routine_id: str, today: date) -> dict:
+def resume_routine(user_id: str, routine_id: str, today: date, now: datetime | None = None) -> dict:
     routine = _get_owned_routine(user_id, routine_id)
     if routine["status"] == "active":
         raise ValueError("Rotina já está ativa")
@@ -758,14 +830,15 @@ def resume_routine(user_id: str, routine_id: str, today: date) -> dict:
     }).eq("id", routine_id).eq("user_id", user_id).execute()
 
     gen_until = today + timedelta(days=GENERATION_HORIZON_DAYS)
-    generate_tasks_for_routine(routine_id, user_id, today, gen_until)
+    generate_tasks_for_routine(routine_id, user_id, today, gen_until, now=now)
 
     return get_routine(user_id, routine_id, today)
 
 
 # --- CRUD items ----------------------------------------------------------
 
-def add_item(user_id: str, routine_id: str, data: dict, today: date) -> dict:
+def add_item(user_id: str, routine_id: str, data: dict, today: date,
+             now: datetime | None = None) -> dict:
     routine = _get_owned_routine(user_id, routine_id)
 
     payload = {
@@ -791,12 +864,13 @@ def add_item(user_id: str, routine_id: str, data: dict, today: date) -> dict:
         ck, ct = _user_curve(user_id)
         ps, cal, _ = calibration_service.get_block_scores(user_id, ct)
         _materialize(user_id, [item], today, gen_until, curve_key=ck,
-                     personal_scores=ps if cal else None)
+                     personal_scores=ps if cal else None, now=now)
 
     return _serialize_item(item)
 
 
-def update_item(user_id: str, routine_id: str, item_id: str, data: dict, today: date) -> dict:
+def update_item(user_id: str, routine_id: str, item_id: str, data: dict, today: date,
+                now: datetime | None = None) -> dict:
     routine = _get_owned_routine(user_id, routine_id)
 
     existing = (
@@ -845,7 +919,7 @@ def update_item(user_id: str, routine_id: str, item_id: str, data: dict, today: 
         ck, ct = _user_curve(user_id)
         ps, cal, _ = calibration_service.get_block_scores(user_id, ct)
         _materialize(user_id, [item], today, gen_until, curve_key=ck,
-                     personal_scores=ps if cal else None)
+                     personal_scores=ps if cal else None, now=now)
 
     return _serialize_item(item)
 

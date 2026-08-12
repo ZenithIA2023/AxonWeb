@@ -151,6 +151,7 @@ class TaskResponse(BaseModel):
     deadline: Optional[str] = None
     created_by: str
     created_at: str
+    completed_at: Optional[str] = None
     is_key_task: bool = False
     carry_count: int = 0
 

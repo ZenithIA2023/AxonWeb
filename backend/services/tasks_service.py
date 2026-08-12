@@ -149,7 +149,7 @@ def _unset_key_task(user_id: str, scheduled_date: str, exclude_id: str | None = 
     q.execute()
 
 
-def create_task(user_id: str, data: dict) -> dict:
+def create_task(user_id: str, data: dict, now: datetime | None = None) -> dict:
     payload = _stringify_dates({**data})
     payload["user_id"] = user_id
 
@@ -160,7 +160,14 @@ def create_task(user_id: str, data: dict) -> dict:
             from services.routines_service import pick_best_slot
             from datetime import date as _date
             day = _date.fromisoformat(str(payload["scheduled_date"]))
-            slot = pick_best_slot(user_id, day, int(duration))
+            # `now` faz o slot de hoje começar a partir de agora, nunca no
+            # passado; prioridade/chave impedem que o Axon coloque uma tarefa
+            # importante num bloco fraco.
+            slot = pick_best_slot(
+                user_id, day, int(duration), now=now,
+                priority=payload.get("priority"),
+                is_key_task=bool(payload.get("is_key_task")),
+            )
             if slot:
                 payload["start_time"], payload["end_time"] = slot
         else:

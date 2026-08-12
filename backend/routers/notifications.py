@@ -121,7 +121,11 @@ def accept_notification(
 
     # Rede de segurança: revalida no aceite (o estado pode ter mudado desde a
     # sugestão). Se o horário ficou ocupado, não sobrepõe tarefas — expira a
-    # sugestão e o Axon proporá um novo horário no próximo ciclo.
+    # sugestão e o Axon proporá um novo horário no próximo ciclo (que pode ser
+    # no dia seguinte, quando o dia atual já não tem espaço bom livre).
+    #
+    # Recusar é deliberado: mover a tarefa para "algum outro horário" aqui
+    # entregaria ao usuário algo diferente do que ele leu e aceitou.
     new_start = update_data.get("start_time")
     if new_start:
         target_date = update_data.get("scheduled_date") or (task or {}).get("scheduled_date")
