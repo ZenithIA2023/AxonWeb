@@ -137,7 +137,7 @@ function LogoVignette() {
           <div className="absolute inset-0 rounded-[1.7rem] bg-[linear-gradient(135deg,rgba(255,255,255,0.24),transparent_54%)] opacity-70" />
 
           <img
-            src="/axon-logo-inverted.svg"
+            src="/axon-logo.svg"
             alt="Axon"
             className="relative h-24 w-24 -rotate-45 object-contain"
           />

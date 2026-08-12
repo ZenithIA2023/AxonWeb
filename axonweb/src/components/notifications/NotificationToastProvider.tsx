@@ -8,16 +8,27 @@ import * as api from "../../lib/api";
 // CONFIGURAÇÕES DO PROVIDER
 // ===========================================================================
 
-const PUBLIC_ROUTES = [
-  "/",
-  "/login",
-  "/signup",
-  "/forgot-password",
-  "/reset-password",
+const TOAST_ENABLED_ROUTES = [
+  "/dashboard",
+  "/chat",
+  "/planejamento",
+  "/insights",
+  "/rotina",
+  "/focus",
+  "/profile",
+  "/settings",
+  "/day-review",
 ];
+
+function isToastEnabledRoute(pathname: string) {
+  return TOAST_ENABLED_ROUTES.some((route) => {
+    return pathname === route || pathname.startsWith(`${route}/`);
+  });
+}
 
 const SHOWN_NOTIFICATIONS_KEY = "axon_shown_notification_ids";
 const TOAST_HIDE_DELAY_MS = 10000;
+const TOAST_ROUTE_ENTRY_DELAY_MS = 3500;
 const POLLING_INTERVAL_MS = 15000;
 
 type NotificationAction = "read" | "accept" | "reject" | null;
@@ -70,9 +81,10 @@ export default function NotificationToastProvider() {
   // ---------------------------------------------------------------------------
   // Condição para ativar notificações
   // ---------------------------------------------------------------------------
-  // Não consulta notificações em rotas públicas ou quando não há sessão.
+  // Não consulta notificações durante loading, onboarding, autenticação ou rotas públicas.
+  // Toasts só ficam ativos dentro das telas reais do app.
   const shouldCheckNotifications =
-    api.isLoggedIn() && !PUBLIC_ROUTES.includes(location.pathname);
+    api.isLoggedIn() && isToastEnabledRoute(location.pathname);
 
   // ---------------------------------------------------------------------------
   // Fechamento do toast
@@ -88,6 +100,23 @@ export default function NotificationToastProvider() {
     setActionLoading(null);
     setToast(null);
   }
+
+  // ---------------------------------------------------------------------------
+  // Fechamento automático fora das telas reais do app
+  // ---------------------------------------------------------------------------
+  // Garante que nenhum toast permaneça visível em loading, onboarding ou auth.
+  useEffect(() => {
+    if (shouldCheckNotifications) return;
+
+    if (hideTimeoutRef.current) {
+      window.clearTimeout(hideTimeoutRef.current);
+      hideTimeoutRef.current = null;
+    }
+
+    setIsVisible(false);
+    setActionLoading(null);
+    setToast(null);
+  }, [location.pathname, shouldCheckNotifications]);
 
   // ---------------------------------------------------------------------------
   // Auto-fechamento do toast
@@ -116,11 +145,14 @@ export default function NotificationToastProvider() {
   // ---------------------------------------------------------------------------
   // Polling de notificações
   // ---------------------------------------------------------------------------
-  // Busca notificações novas ao entrar no app, a cada intervalo e ao voltar para aba.
+  // Busca notificações alguns segundos depois de entrar no app, depois mantém
+  // o polling normal e checa novamente ao voltar para a aba.
   useEffect(() => {
     if (!shouldCheckNotifications) return;
 
     let interval: number | undefined;
+    let entryDelayTimeout: number | undefined;
+    let hasPassedEntryDelay = false;
     let cancelled = false;
 
     async function checkNotifications() {
@@ -148,12 +180,17 @@ export default function NotificationToastProvider() {
       }
     }
 
-    checkNotifications();
+    entryDelayTimeout = window.setTimeout(() => {
+      if (cancelled) return;
 
-    interval = window.setInterval(checkNotifications, POLLING_INTERVAL_MS);
+      hasPassedEntryDelay = true;
+      checkNotifications();
+
+      interval = window.setInterval(checkNotifications, POLLING_INTERVAL_MS);
+    }, TOAST_ROUTE_ENTRY_DELAY_MS);
 
     const handleVisibility = () => {
-      if (!document.hidden) {
+      if (!document.hidden && hasPassedEntryDelay) {
         checkNotifications();
       }
     };
@@ -163,13 +200,17 @@ export default function NotificationToastProvider() {
     return () => {
       cancelled = true;
 
+      if (entryDelayTimeout) {
+        window.clearTimeout(entryDelayTimeout);
+      }
+
       if (interval) {
         window.clearInterval(interval);
       }
 
       document.removeEventListener("visibilitychange", handleVisibility);
     };
-  }, [shouldCheckNotifications]);
+  }, [location.pathname, shouldCheckNotifications]);
 
   // ---------------------------------------------------------------------------
   // Ações do toast
