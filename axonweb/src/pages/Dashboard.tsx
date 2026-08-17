@@ -764,7 +764,14 @@ export default function Dashboard() {
           </section>
         )}
 
-        <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1.12fr)_minmax(360px,0.88fr)] lg:items-stretch lg:gap-5">
+        {/* `grid-cols-1` (= repeat(1, minmax(0,1fr))) é obrigatório no mobile:
+            sem ele a coluna implícita é `auto` e cresce até o min-content dos
+            cards. Como os títulos das tarefas em "Hoje" usam `truncate`
+            (white-space: nowrap), o min-content deles é o texto inteiro — uma
+            tarefa de título longo esticava a coluna além dos 390px da tela e
+            todos os cards do grid vazavam (o `min-w-0` das linhas só age no
+            layout flex, não no cálculo da faixa do grid). */}
+        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.12fr)_minmax(360px,0.88fr)] lg:items-stretch lg:gap-5">
           <div className="space-y-4">
             <section>
               {isDashboardBooting ? (
