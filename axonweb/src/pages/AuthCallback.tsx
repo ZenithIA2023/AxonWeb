@@ -1,15 +1,16 @@
 import { useEffect } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import * as api from "../lib/api";
 
 export default function AuthCallback() {
   const navigate = useNavigate();
-  const location = useLocation();
+  // useSearchParams em vez de URLSearchParams sobre location.search: no app o
+  // HashRouter põe a query depois do "#", onde location.search não enxerga.
+  // O hook lê a query do próprio router e funciona nas duas plataformas.
+  const [params] = useSearchParams();
 
   // Fluxo de retorno do Google: valida a URL, cria sessão local e decide a próxima tela.
   useEffect(() => {
-    const params = new URLSearchParams(location.search);
-
     // Erros vindos do backend/OAuth voltam para o login com a mensagem preservada.
     const error = params.get("error");
     if (error) {

@@ -229,6 +229,17 @@ TOOLS = [
                         "Descubra o id correto com listar_objetivos antes."
                     ),
                 },
+                "confirmar_conflito": {
+                    "type": "boolean",
+                    "description": (
+                        "Deixe ausente na primeira tentativa. Se a chamada voltar com "
+                        "erro 'conflito_de_horario', a tarefa NÃO foi criada: avise o "
+                        "usuário sobre a sobreposição e pergunte o que ele prefere. "
+                        "Use true APENAS depois que ele disser explicitamente que quer "
+                        "manter o horário mesmo assim. Se ele escolher outro horário, "
+                        "chame de novo com o horário novo e SEM este campo."
+                    ),
+                },
             },
             "required": ["title"],
         },
@@ -645,9 +656,56 @@ def execute_tool(name: str, tool_input: dict, user_id: str, tz_name: str | None 
         tool_input = _resolve_date_fields(tool_input, tz_name)
 
         if name == "criar_tarefa":
+            agora = datetime.now(user_tz.zone(tz_name))
+            dados = {k: v for k, v in tool_input.items()
+                     if k != "confirmar_conflito"}
+
+            # 1) Repetição da mesma chamada (tool_result que não voltou ao
+            #    modelo). Devolve a tarefa que já existe em vez de criar outra.
+            existente = tasks_service.find_recent_duplicate(
+                user_id,
+                dados.get("title"),
+                dados.get("scheduled_date"),
+                dados.get("start_time"),
+                now=agora,
+            )
+            if existente:
+                return {"ok": True, "task": existente, "ja_existia": True}
+
+            # 2) Sobreposição com outra tarefa do dia. Não grava na primeira
+            #    tentativa: devolve o conflito para o Axon avisar ANTES de
+            #    criar. O usuário decide manter (o modelo repete a chamada com
+            #    confirmar_conflito=true) ou trocar o horário (chamada nova,
+            #    que passa por esta mesma checagem de novo).
+            if not tool_input.get("confirmar_conflito"):
+                conflito = tasks_service.find_conflicting_task(
+                    user_id,
+                    str(dados.get("scheduled_date") or ""),
+                    dados.get("start_time"),
+                    dados.get("end_time"),
+                )
+                if conflito:
+                    return {
+                        "ok": False,
+                        "erro": "conflito_de_horario",
+                        "conflito": {
+                            "title": conflito.get("title"),
+                            "start_time": conflito.get("start_time"),
+                            "end_time": conflito.get("end_time"),
+                            "scheduled_date": conflito.get("scheduled_date"),
+                        },
+                        "instrucao": (
+                            "A tarefa NÃO foi criada. Avise o usuário que esse "
+                            "horário se sobrepõe à tarefa acima e pergunte se ele "
+                            "quer manter assim mesmo ou escolher outro horário. "
+                            "Se ele quiser manter, repita esta chamada com "
+                            "confirmar_conflito=true. Se preferir outro horário, "
+                            "chame de novo com o horário novo."
+                        ),
+                    }
+
             task = tasks_service.create_task(
-                user_id, {**tool_input, "created_by": "agent"},
-                now=datetime.now(user_tz.zone(tz_name)),
+                user_id, {**dados, "created_by": "agent"}, now=agora,
             )
             _notify_task_change(user_id, 0, task)
             return {"ok": True, "task": task}
