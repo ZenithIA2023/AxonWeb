@@ -33,6 +33,7 @@ import Sidebar from "../components/layout/Sidebar";
 import Routines from "./Routines";
 import Goals from "./Goals";
 import * as api from "../lib/api";
+import { openAuthUrl } from "../lib/nativeAuth";
 import type { Task, TaskType, TaskStatus, Subtask, DailyStat } from "../lib/api";
 import AppBackground from "../components/layout/AppBackground";
 import PageHeader from "../components/layout/PageHeader";
@@ -620,7 +621,10 @@ function AgendaView({ embedded = false }: { embedded?: boolean } = {}) {
 
       localStorage.setItem(CALENDAR_SETUP_STORAGE_KEY, "google");
       setCalendarSetupChoice("google");
-      window.location.href = auth_url;
+      // A URL já vem pronta do backend (com o state) e aponta para o Google;
+      // aqui só decidimos ONDE abrir. A plataforma já foi informada na chamada
+      // /connect acima, por isso markPlatform: false.
+      await openAuthUrl(auth_url, { markPlatform: false });
     } catch (e) {
       setCalendarConnectError(
         e instanceof Error

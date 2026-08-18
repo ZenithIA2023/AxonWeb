@@ -11,6 +11,7 @@ import Signup from "../pages/Signup";
 import ForgotPassword from "../pages/ForgotPassword";
 import ResetPassword from "../pages/ResetPassword";
 import AuthCallback from "../pages/AuthCallback";
+import DeepLinkHandler from "../components/auth/DeepLinkHandler";
 
 // Onboarding
 import QuestionnaireIntro from "../pages/QuestionnaireIntro";
@@ -43,6 +44,8 @@ export default function App() {
   return (
     <Router>
       <ScrollToTop />
+
+      <DeepLinkHandler />
 
       <NotificationToastProvider />
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import { AlertCircle, ArrowRight, Eye, EyeOff, Lock, Mail } from "lucide-react";
 
@@ -84,7 +84,7 @@ function PasswordField({ label, placeholder, value, onChange }: PasswordFieldPro
 
 export default function Login() {
   const navigate = useNavigate();
-  const location = useLocation();
+  const [searchParams] = useSearchParams();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -93,14 +93,16 @@ export default function Login() {
   const [error, setError] = useState("");
   const [rememberMe, setRememberMe] = useState(false);
 
+  // Erros do OAuth chegam por query (?error=...), inclusive vindos do deep link
+  // no app. useSearchParams lê a query do router, que no HashRouter fica depois
+  // do "#" — onde o location.search do navegador não enxergaria.
   useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    const urlError = params.get("error");
+    const urlError = searchParams.get("error");
 
     if (urlError) {
       setError(decodeURIComponent(urlError));
     }
-  }, [location.search]);
+  }, [searchParams]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

@@ -1,3 +1,5 @@
+import { isNative, withPlatform } from "./nativeAuth";
+
 const BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
 /* ============================================================================
@@ -98,7 +100,10 @@ async function request<T>(
       }
 
       clearSessionItems();
-      window.location.href = "/login";
+      // No app as rotas vivem depois do "#": mandar o WebView para "/login"
+      // pediria um ARQUIVO com esse nome, que não existe no pacote, e a tela
+      // ficaria em branco em vez de voltar ao login.
+      window.location.href = isNative() ? "#/login" : "/login";
       throw new Error("Sessão expirada");
     }
 
@@ -148,8 +153,10 @@ export function exchangeGoogleSession(code: string) {
 }
 
 // Inicia o fluxo para conectar Google Calendar nas integrações.
+// `withPlatform` avisa o backend quando o pedido vem do app, para que o
+// redirect final volte pelo deep link em vez de uma URL web.
 export function connectGoogleCalendar() {
-  return request<{ auth_url: string }>("/auth/google/connect");
+  return request<{ auth_url: string }>(withPlatform("/auth/google/connect"));
 }
 
 export function refreshSession(refreshToken: string) {
@@ -163,8 +170,13 @@ export function refreshSession(refreshToken: string) {
 // `remember=true` (padrão) grava em localStorage e sobrevive ao fechar o
 // navegador; `remember=false` grava em sessionStorage e some com a aba.
 export function saveSession(res: AuthResponse, remember: boolean = true) {
-  const target = remember ? localStorage : sessionStorage;
-  const other = remember ? sessionStorage : localStorage;
+  // No app instalado não existe "fechar a aba": sessionStorage seria apagado ao
+  // encerrar o app e o usuário cairia no login toda vez, sem entender por quê.
+  // "Manter-me conectado" é um conceito de navegador, então no nativo a sessão
+  // é sempre persistente.
+  const persist = remember || isNative();
+  const target = persist ? localStorage : sessionStorage;
+  const other = persist ? sessionStorage : localStorage;
 
   target.setItem("axon_token", res.access_token);
   target.setItem("axon_refresh_token", res.refresh_token);

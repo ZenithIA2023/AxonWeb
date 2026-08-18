@@ -22,6 +22,21 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!--
+                Deep link do OAuth: o Google autentica no navegador do sistema e
+                o backend redireciona para com.axon.app://..., que o Android
+                entrega de volta a esta activity (launchMode singleTask reusa a
+                instância já aberta em vez de empilhar outra).
+                O esquema precisa casar com MOBILE_SCHEME no backend e com
+                DEEP_LINK_SCHEME em src/lib/nativeAuth.ts.
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="com.axon.app" />
+            </intent-filter>
+
         </activity>
 
         <provider
