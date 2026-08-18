@@ -106,6 +106,64 @@ def find_conflicting_task(
     return None
 
 
+# Janela em que uma tarefa idêntica é tratada como repetição da MESMA intenção,
+# não como um segundo pedido do usuário.
+_DUPLICATE_WINDOW_SEC = 120
+
+
+def find_recent_duplicate(
+    user_id: str,
+    title: str | None,
+    scheduled_date: str | None,
+    start_time: str | None,
+    *,
+    now: datetime | None = None,
+    window_sec: int = _DUPLICATE_WINDOW_SEC,
+) -> dict | None:
+    """
+    Tarefa idêntica (mesmo título, dia e horário) criada há menos de
+    `window_sec`. None se não houver.
+
+    Existe porque o loop de tool use pode reenviar a mesma chamada quando o
+    `tool_result` não chega de volta ao modelo (ex.: rodada cortada por
+    max_tokens): a tool já executou, mas o modelo não soube e tenta de novo.
+    Sem esta checagem cada tentativa virava uma linha nova — foi assim que um
+    único "marca dentista amanhã às 14h" virou três tarefas no banco.
+
+    A comparação de título ignora caixa e espaços nas pontas; o resto tem de
+    bater exatamente. Duas tarefas iguais no mesmo horário nunca são pedido
+    legítimo — o usuário não agenda o dentista duas vezes às 14h.
+    """
+    if not title or not scheduled_date:
+        return None
+    alvo = title.strip().casefold()
+    agora = now or datetime.now(timezone.utc)
+    if agora.tzinfo is None:
+        agora = agora.replace(tzinfo=timezone.utc)
+
+    # O banco devolve "HH:MM:SS" e o agente manda "HH:MM" — sem normalizar, a
+    # comparação nunca bate e a guarda não pega nada.
+    alvo_hora = (start_time or "")[:5] or None
+
+    for t in list_tasks(user_id, scheduled_date=str(scheduled_date)):
+        if (t.get("title") or "").strip().casefold() != alvo:
+            continue
+        if ((t.get("start_time") or "")[:5] or None) != alvo_hora:
+            continue
+        criado = t.get("created_at")
+        if not criado:
+            continue
+        try:
+            dt = datetime.fromisoformat(str(criado).replace("Z", "+00:00"))
+        except (ValueError, TypeError):
+            continue
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        if 0 <= (agora - dt).total_seconds() <= window_sec:
+            return t
+    return None
+
+
 def list_tasks(
     user_id: str,
     *,

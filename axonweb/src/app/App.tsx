@@ -1,4 +1,5 @@
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, HashRouter, Navigate, Route, Routes } from "react-router-dom";
+import { Capacitor } from "@capacitor/core";
 
 import ScrollToTop from "../components/layout/ScrollToTop";
 
@@ -31,9 +32,16 @@ import Focus from "../pages/Focus";
 import Profile from "../pages/Profile";
 import Settings from "../pages/Settings";
 
+// No app empacotado não existe servidor HTTP: os arquivos vêm do sistema de
+// arquivos do aparelho, então a History API do BrowserRouter não funciona e
+// "/dashboard" viraria uma tela branca. O HashRouter resolve isso no nativo,
+// enquanto a web continua com URLs limpas. A detecção é em runtime, então um
+// único `npm run build` serve as duas plataformas.
+const Router = Capacitor.isNativePlatform() ? HashRouter : BrowserRouter;
+
 export default function App() {
   return (
-    <BrowserRouter>
+    <Router>
       <ScrollToTop />
 
       <NotificationToastProvider />
@@ -84,6 +92,6 @@ export default function App() {
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-    </BrowserRouter>
+    </Router>
   );
 }
