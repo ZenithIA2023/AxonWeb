@@ -10,54 +10,89 @@ from services import google_service
 
 router = APIRouter(prefix="/auth/google", tags=["google-auth"])
 
+# Esquema de deep link do app Android. Tem que casar com o intent-filter do
+# AndroidManifest.xml e com o applicationId (com.axon.app).
+MOBILE_SCHEME = "com.axon.app"
+
+
+def _base_for(platform: str) -> str:
+    """
+    Raiz para onde o callback redireciona no final do fluxo.
+
+    Web: a URL http(s) do frontend, como sempre foi.
+    Mobile: o deep link do app. O caminho leva "/#" porque no app o React Router
+    roda em modo hash (decisão da fase 1) — sem isso o app abre na raiz e a rota
+    de callback nunca monta.
+    """
+    if platform == google_service.PLATFORM_MOBILE:
+        return f"{MOBILE_SCHEME}:///#"
+    return os.getenv("FRONTEND_URL", "http://localhost:5173")
+
 
 @router.get("")
-def google_login():
-    state = google_service.generate_and_store_state()
+def google_login(platform: str | None = None):
+    """
+    `platform=mobile` marca que o fluxo partiu do app. O valor é guardado no
+    servidor junto ao state (não viaja na URL de volta), então o destino do
+    redirect final não pode ser forjado por quem chama o callback.
+    """
+    state = google_service.generate_and_store_state(platform)
     return RedirectResponse(google_service.build_auth_url(state))
 
 
 @router.get("/connect", response_model=GoogleConnectResponse)
-def google_connect(current_user: dict = Depends(get_current_user)):
+def google_connect(
+    platform: str | None = None,
+    current_user: dict = Depends(get_current_user),
+):
     """
     Inicia o fluxo de conexão do Google Agenda para um usuário JÁ logado
     (ex.: quem entrou com email/senha). Amarra o state ao user_id.
     """
-    state = google_service.store_connect_state(current_user["id"])
+    state = google_service.store_connect_state(current_user["id"], platform)
     return GoogleConnectResponse(auth_url=google_service.build_auth_url(state))
 
 
-def _handle_connect_callback(code: str, state: str, frontend_url: str) -> RedirectResponse:
+def _handle_connect_callback(code: str, state: str) -> RedirectResponse:
     """Fluxo 'conectar agenda' (usuário já logado). Reusa o redirect_uri do login."""
-    user_id = google_service.consume_connect_state(state)
-    if user_id is None:
-        return RedirectResponse(f"{frontend_url}/planning?google=error")
+    entry = google_service.consume_connect_state(state)
+    if entry is None:
+        # Sem state válido não sabemos a origem: cai no destino web, que é o
+        # comportamento seguro (uma URL http, nunca um deep link forjado).
+        return RedirectResponse(f"{_base_for(google_service.PLATFORM_WEB)}/planning?google=error")
+
+    user_id, platform = entry
+    base = _base_for(platform)
     try:
         tokens = google_service.exchange_code(code)
         refresh_token = tokens.get("refresh_token")
         if not refresh_token:
-            return RedirectResponse(f"{frontend_url}/planning?google=error")
+            return RedirectResponse(f"{base}/planning?google=error")
         supabase.table("profiles").update(
             {"google_refresh_token": refresh_token}
         ).eq("id", user_id).execute()
-        return RedirectResponse(f"{frontend_url}/planning?google=connected")
+        return RedirectResponse(f"{base}/planning?google=connected")
     except Exception:
-        return RedirectResponse(f"{frontend_url}/planning?google=error")
+        return RedirectResponse(f"{base}/planning?google=error")
 
 
 @router.get("/callback")
 def google_callback(code: str = None, error: str = None, state: str = None):
-    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+    web_url = _base_for(google_service.PLATFORM_WEB)
 
     if error or not code:
-        return RedirectResponse(f"{frontend_url}/login?error=google_denied")
+        return RedirectResponse(f"{web_url}/login?error=google_denied")
 
     # Fluxo "conectar agenda" (usuário já logado) — state com prefixo connect_
     if state and state.startswith("connect_"):
-        return _handle_connect_callback(code, state, frontend_url)
+        return _handle_connect_callback(code, state)
 
-    if not state or not google_service.verify_and_consume_state(state):
-        return RedirectResponse(f"{frontend_url}/login?error=invalid_state")
+    # A plataforma vem do state guardado no servidor; state inválido cai no web.
+    platform = google_service.verify_and_consume_state(state) if state else None
+    if platform is None:
+        return RedirectResponse(f"{web_url}/login?error=invalid_state")
+
+    base = _base_for(platform)
 
     try:
         tokens = google_service.exchange_code(code)
@@ -97,10 +132,10 @@ def google_callback(code: str = None, error: str = None, state: str = None):
             "has_chronotype": has_chronotype,
         })
 
-        return RedirectResponse(f"{frontend_url}/auth/callback?session_code={session_code}")
+        return RedirectResponse(f"{base}/auth/callback?session_code={session_code}")
 
     except Exception:
-        return RedirectResponse(f"{frontend_url}/login?error=authentication_failed")
+        return RedirectResponse(f"{base}/login?error=authentication_failed")
 
 
 @router.get("/session")

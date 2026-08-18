@@ -14,51 +14,82 @@ SCOPES = " ".join([
 _STATE_TTL = 600    # 10 min para o usuário completar o login no Google
 _SESSION_TTL = 300  # 5 min para o frontend trocar o código pelos tokens
 
-_pending_states: dict[str, float] = {}           # state -> timestamp
-_pending_sessions: dict[str, tuple[dict, float]] = {}  # code -> (dados, timestamp)
-_pending_connects: dict[str, tuple[str, float]] = {}   # state -> (user_id, timestamp)
+_pending_states: dict[str, tuple[str, float]] = {}       # state -> (plataforma, timestamp)
+_pending_sessions: dict[str, tuple[dict, float]] = {}    # code -> (dados, timestamp)
+_pending_connects: dict[str, tuple[str, str, float]] = {}  # state -> (user_id, plataforma, timestamp)
 
 _CALENDAR_BASE = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
 
 
 def _cleanup(store: dict, ttl: float) -> None:
+    # O timestamp é sempre o ÚLTIMO elemento da tupla — as tuplas têm tamanhos
+    # diferentes entre os stores (2 ou 3 campos), então indexar por posição fixa
+    # quebraria silenciosamente ao adicionar um campo novo.
     now = time.time()
-    expired = [k for k, v in list(store.items()) if now - (v[1] if isinstance(v, tuple) else v) > ttl]
+    expired = [k for k, v in list(store.items()) if now - (v[-1] if isinstance(v, tuple) else v) > ttl]
     for k in expired:
         del store[k]
 
 
-def generate_and_store_state() -> str:
+# Plataformas de origem do fluxo OAuth. Decide para onde o callback redireciona
+# no final: a web volta para uma URL http(s), o app para um deep link.
+PLATFORM_WEB = "web"
+PLATFORM_MOBILE = "mobile"
+
+
+def _normalize_platform(platform: str | None) -> str:
+    """Só 'mobile' é aceito como alternativa; qualquer outra coisa é web."""
+    return PLATFORM_MOBILE if platform == PLATFORM_MOBILE else PLATFORM_WEB
+
+
+def generate_and_store_state(platform: str | None = None) -> str:
+    """
+    Gera o state do OAuth e guarda, no servidor, de qual plataforma o fluxo
+    partiu. A plataforma NÃO viaja dentro da string do state: quem volta do
+    Google só apresenta um identificador opaco, e o destino do redirect é
+    decidido pelo que guardamos aqui. Assim ninguém consegue forjar um callback
+    que redirecione a sessão para outro lugar.
+    """
     _cleanup(_pending_states, _STATE_TTL)
     state = secrets.token_urlsafe(16)
-    _pending_states[state] = time.time()
+    _pending_states[state] = (_normalize_platform(platform), time.time())
     return state
 
 
-def verify_and_consume_state(state: str) -> bool:
-    ts = _pending_states.pop(state, None)
-    if ts is None:
-        return False
-    return (time.time() - ts) <= _STATE_TTL
+def verify_and_consume_state(state: str) -> str | None:
+    """
+    Valida o state de login e devolve a plataforma de origem ('web'/'mobile'),
+    ou None se o state for inválido/expirado.
+    """
+    entry = _pending_states.pop(state, None)
+    if entry is None:
+        return None
+    platform, ts = entry
+    if (time.time() - ts) > _STATE_TTL:
+        return None
+    return platform
 
 
-def store_connect_state(user_id: str) -> str:
+def store_connect_state(user_id: str, platform: str | None = None) -> str:
     """Gera um state amarrado ao user_id logado, para o fluxo 'conectar agenda'."""
     _cleanup(_pending_connects, _STATE_TTL)
     state = "connect_" + secrets.token_urlsafe(16)
-    _pending_connects[state] = (user_id, time.time())
+    _pending_connects[state] = (user_id, _normalize_platform(platform), time.time())
     return state
 
 
-def consume_connect_state(state: str) -> str | None:
-    """Valida o state de connect e devolve o user_id associado (ou None)."""
+def consume_connect_state(state: str) -> tuple[str, str] | None:
+    """
+    Valida o state de connect e devolve (user_id, plataforma), ou None se
+    inválido/expirado.
+    """
     entry = _pending_connects.pop(state, None)
     if entry is None:
         return None
-    user_id, ts = entry
+    user_id, platform, ts = entry
     if (time.time() - ts) > _STATE_TTL:
         return None
-    return user_id
+    return user_id, platform
 
 
 def store_session(data: dict) -> str:

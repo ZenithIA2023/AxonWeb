@@ -1,3 +1,5 @@
+import { openAuthUrl } from "../../lib/nativeAuth";
+
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
 type GoogleAuthButtonProps = {
@@ -6,7 +8,9 @@ type GoogleAuthButtonProps = {
 
 export default function GoogleAuthButton({ label }: GoogleAuthButtonProps) {
   function handleClick() {
-    window.location.href = `${API_URL}/auth/google`;
+    // Na web navega na própria aba; no app abre o navegador do sistema, único
+    // lugar onde o Google aceita autenticar.
+    void openAuthUrl(`${API_URL}/auth/google`);
   }
 
   return (
