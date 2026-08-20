@@ -4,6 +4,7 @@ import { Capacitor } from "@capacitor/core";
 import ScrollToTop from "../components/layout/ScrollToTop";
 
 import LandingPage from "../pages/LandingPage";
+import NativeEntry from "../pages/NativeEntry";
 
 // Auth
 import Login from "../pages/Login";
@@ -12,6 +13,7 @@ import ForgotPassword from "../pages/ForgotPassword";
 import ResetPassword from "../pages/ResetPassword";
 import AuthCallback from "../pages/AuthCallback";
 import DeepLinkHandler from "../components/auth/DeepLinkHandler";
+import NativeShell from "../components/layout/NativeShell";
 
 // Onboarding
 import QuestionnaireIntro from "../pages/QuestionnaireIntro";
@@ -47,11 +49,17 @@ export default function App() {
 
       <DeepLinkHandler />
 
+      <NativeShell />
+
       <NotificationToastProvider />
 
       <Routes>
-        {/* Public */}
-        <Route path="/" element={<LandingPage />} />
+        {/* Public — no app instalado a landing não faz sentido: quem abre já
+            escolheu o Axon. Vai direto para o dashboard ou para o login. */}
+        <Route
+          path="/"
+          element={Capacitor.isNativePlatform() ? <NativeEntry /> : <LandingPage />}
+        />
 
         {/* Auth */}
         <Route path="/login" element={<Login />} />

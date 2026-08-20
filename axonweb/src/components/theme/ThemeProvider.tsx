@@ -6,6 +6,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { Capacitor } from "@capacitor/core";
 
 export type Theme = "light" | "dark" | "system";
 export type ResolvedTheme = "light" | "dark";
@@ -56,6 +57,28 @@ function applyThemeToDocument(resolvedTheme: ResolvedTheme) {
   root.classList.add(resolvedTheme);
 
   root.dataset.theme = resolvedTheme;
+
+  syncNativeStatusBar(resolvedTheme);
+}
+
+/**
+ * No app, a barra de status é do sistema e não muda sozinha com o tema — no
+ * escuro, ícones pretos sobre fundo escuro ficam ilegíveis.
+ *
+ * `Style.Dark` significa "conteúdo claro para fundo escuro" (a nomenclatura do
+ * plugin é pelo fundo, não pelos ícones), por isso a aparente inversão.
+ * Import dinâmico para não carregar o plugin na web.
+ */
+function syncNativeStatusBar(resolvedTheme: ResolvedTheme) {
+  if (!Capacitor.isNativePlatform()) return;
+
+  void import("@capacitor/status-bar")
+    .then(({ StatusBar, Style }) =>
+      StatusBar.setStyle({ style: resolvedTheme === "dark" ? Style.Dark : Style.Light })
+    )
+    .catch(() => {
+      // APK sem o plugin (build antigo): manter o tema funcionando é o que importa.
+    });
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {

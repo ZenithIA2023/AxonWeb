@@ -2,3 +2,11 @@
 # Credenciais - nunca commitar
 *firebase-adminsdk*.json
 *serviceAccountKey*.json
+google-services.json
+
+# Rede de segurança: qualquer .json solto na RAIZ do repo. Nenhum arquivo
+# legítimo do projeto mora aqui — os que importam estão em axonweb/ e backend/.
+# Credenciais baixadas costumam cair na raiz, e é assim que vazam.
+/*.json
+!/package.json
+!/package-lock.json

@@ -349,3 +349,69 @@ body {
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: rgba(168, 85, 247, 0.35);
 }
+/* ===========================================================================
+   SAFE AREAS — só no app instalado (fase 4 do plano da Play Store)
+   ---------------------------------------------------------------------------
+   O WebView ocupa a tela inteira, incluindo a faixa da barra de status e a
+   barra de gestos/navegação. Sem compensar, o topo fica sob o relógio e o
+   rodapé sob os botões do sistema.
+
+   A classe `.is-native` é posta no <html> em runtime (main.tsx), então a web
+   não é afetada por nada daqui.
+
+   A compensação é aplicada no <main> de cada tela — a raiz do layout — e não
+   em classes utilitárias soltas (pb-4, pb-6...): essas aparecem também em
+   elementos internos, e cobrir "algumas delas" deixa telas de fora, como
+   aconteceu com o composer do Chat ficando sob a barra de navegação.
+   =========================================================================== */
+
+/* Fundo cobre a área dos insets, senão aparece faixa clara atrás das barras. */
+.is-native body {
+  background: var(--app-bg);
+}
+
+/* Raiz das telas: o padding do sistema entra ANTES do padding de design,
+   somando-se ao que cada página já define internamente. */
+.is-native main {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Telas de altura travada (Chat, Focus) usam 100dvh, que conta a tela INTEIRA,
+   incluindo as barras do sistema. Com o padding acima, o conteúdo passaria a
+   transbordar; descontar os insets da altura devolve o espaço certo. */
+.is-native main.h-\[100dvh\] {
+  height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+}
+
+/* Elementos fixos no rodapé (barra de ação do Dashboard, sheets, modais) não
+   herdam o padding do <main>: precisam subir por conta própria. */
+.is-native .fixed.bottom-6 {
+  bottom: calc(1.5rem + env(safe-area-inset-bottom));
+}
+
+.is-native .fixed.bottom-0 {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Overlays que cobrem a tela toda (modais, drawer) respeitam os dois lados. */
+.is-native .fixed.inset-0 {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* A sidebar já flutua afastada das bordas (top-3/bottom-3), então ela não
+   precisa de padding interno — precisa apenas ser EMPURRADA para além das
+   barras do sistema. Padding aqui só encolheria o conteúdo do menu. */
+.is-native aside.fixed,
+.is-native [data-drawer] {
+  top: calc(0.75rem + env(safe-area-inset-top));
+  bottom: calc(0.75rem + env(safe-area-inset-bottom));
+}
+
+/* O "puxar além do fim" do WebView denuncia que é um site dentro de uma
+   janela. Num app instalado ele não existe. */
+.is-native html,
+.is-native body {
+  overscroll-behavior: none;
+}

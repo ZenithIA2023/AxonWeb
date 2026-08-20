@@ -1,4 +1,5 @@
 import type { CapacitorConfig } from "@capacitor/cli";
+import { KeyboardResize } from "@capacitor/keyboard";
 
 // Live reload no aparelho real (fase 1.7 do plano da Play Store): apontar o
 // WebView para o servidor de dev do Vite em vez dos arquivos empacotados.
@@ -16,6 +17,14 @@ const config: CapacitorConfig = {
   },
   android: {
     allowMixedContent: false,
+  },
+  plugins: {
+    Keyboard: {
+      // O WebView é redimensionado quando o teclado abre, então os campos do
+      // Chat e do questionário não ficam escondidos atrás dele.
+      resize: KeyboardResize.Native,
+      resizeOnFullScreen: true,
+    },
   },
 };
 
