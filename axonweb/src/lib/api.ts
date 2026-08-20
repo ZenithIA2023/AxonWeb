@@ -190,8 +190,52 @@ export function isLoggedIn(): boolean {
   return !!getToken();
 }
 
+// Exposto para o módulo de push, que precisa do token em chamadas feitas fora
+// do fluxo normal (durante o logout, quando a sessão já saiu do storage).
+export function getAuthToken(): string | null {
+  return getToken();
+}
+
 export function logout() {
+  // Tira este aparelho da lista de push. A chamada ao backend precisa do token
+  // de autenticação, e `clearSessionItems()` logo abaixo o apaga — por isso o
+  // token é capturado AGORA e passado adiante, em vez de lido lá dentro.
+  // O logout local não espera a rede: acontece na hora, de qualquer jeito.
+  const authToken = getToken();
+  void unregisterDeviceOnLogout(authToken);
   clearSessionItems();
+}
+
+async function unregisterDeviceOnLogout(authToken: string | null): Promise<void> {
+  if (!isNative() || !authToken) return;
+  try {
+    const { unregisterDevice } = await import("./push");
+    await unregisterDevice(authToken);
+  } catch {
+    // Sem rede ou push nunca registrado: nada a desfazer.
+  }
+}
+
+/* ============================================================================
+ * PUSH (aparelhos)
+ * Só o app usa; na web as funções nunca são chamadas.
+ * ========================================================================== */
+
+export function registerDeviceToken(token: string, platform = "android") {
+  return request<void>("/notifications/device-token", {
+    method: "POST",
+    body: JSON.stringify({ token, platform }),
+  });
+}
+
+// `authToken` explícito porque isto é chamado durante o logout, quando a sessão
+// já foi limpa do storage e `authHeaders()` devolveria vazio.
+export function unregisterDeviceToken(token: string, authToken: string) {
+  return request<void>("/notifications/device-token", {
+    method: "DELETE",
+    body: JSON.stringify({ token, platform: "android" }),
+    headers: { Authorization: `Bearer ${authToken}` },
+  });
 }
 
 /* ============================================================================

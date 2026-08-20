@@ -22,6 +22,7 @@ import {
 import { results, type ChronotypeResultKey } from "../data/results";
 import Sidebar from "../components/layout/Sidebar";
 import * as api from "../lib/api";
+import * as push from "../lib/push";
 import { AppBackground } from "../components/layout/AppBackground";
 import PageHeader from "../components/layout/PageHeader";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
@@ -88,6 +89,48 @@ export default function Settings() {
     useState(true);
   const [axonSuggestionNotifications, setAxonSuggestionNotifications] =
     useState(true);
+
+  // Push do sistema: diferente dos toggles acima, este tem estado REAL — ele
+  // reflete a permissão do Android e o registro do aparelho no backend.
+  const [pushSupported, setPushSupported] = useState(false);
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushBlocked, setPushBlocked] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushDiag, setPushDiag] = useState("");
+
+  useEffect(() => {
+    void push.getStatus().then((st) => {
+      setPushSupported(st.supported);
+      setPushEnabled(st.registered);
+      setPushBlocked(st.permission === "denied");
+      setPushDiag(st.diagnostic ?? "");
+    });
+  }, []);
+
+  async function handleTogglePush() {
+    if (pushBusy) return;
+    setPushBusy(true);
+
+    try {
+      if (pushEnabled) {
+        await push.disable();
+        setPushEnabled(false);
+      } else {
+        const ok = await push.requestPermissionAndRegister();
+        setPushEnabled(ok);
+        const depois = await push.getStatus();
+        setPushDiag(depois.diagnostic ?? "");
+        // Recusa no diálogo do sistema: o Android não pergunta de novo, então a
+        // tela precisa dizer que agora só as configurações do aparelho revertem.
+        if (!ok) {
+          const st = await push.getStatus();
+          setPushBlocked(st.permission === "denied");
+        }
+      }
+    } finally {
+      setPushBusy(false);
+    }
+  }
 
   useEffect(() => {
     api
@@ -162,6 +205,22 @@ export default function Settings() {
                 value="Configurar"
                 onClick={() => setNotifSettingsOpen(true)}
               />
+
+              {pushSupported && (
+                <ToggleRow
+                  icon={Bell}
+                  title="Notificações no aparelho"
+                  description={
+                    pushBlocked
+                      ? "Bloqueado no Android. Libere em Ajustes > Apps > Axon > Notificações."
+                      : pushDiag
+                        ? pushDiag
+                        : "Receber alertas do Axon mesmo com o app fechado."
+                  }
+                  enabled={pushEnabled}
+                  onToggle={handleTogglePush}
+                />
+              )}
 
               <ToggleRow
                 icon={Moon}
