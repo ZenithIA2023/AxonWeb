@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { Bell, X } from "lucide-react";
 
 import * as api from "../../lib/api";
+import * as push from "../../lib/push";
 
 // ===========================================================================
 // CONFIGURAÇÕES DO PROVIDER
@@ -163,6 +164,14 @@ export default function NotificationToastProvider() {
         );
 
         if (!latestUnread) return;
+
+        // Pedimos a permissão de push assim que existe uma notificação não
+        // lida — mesmo que o toast dela já tenha sido exibido antes. Amarrar
+        // isto ao toast APARECER faria com que quem já tinha notificação
+        // antiga nunca fosse perguntado.
+        if (push.isSupported() && !push.hasAsked()) {
+          void push.requestPermissionAndRegister();
+        }
 
         const shownIds = getShownIds();
 

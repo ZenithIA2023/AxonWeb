@@ -3,9 +3,16 @@ from models.schemas import (
     NotificationResponse,
     NotificationCountResponse,
     NotificationAnalyzeResponse,
+    DeviceTokenRegister,
 )
 from auth_helper import get_current_user
-from services import notification_service, notification_analyzer, tasks_service, user_tz
+from services import (
+    notification_service,
+    notification_analyzer,
+    tasks_service,
+    user_tz,
+    push_service,
+)
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
@@ -178,3 +185,36 @@ def reject_notification(
     if not result:
         raise HTTPException(status_code=404, detail="Notificação não encontrada")
     return result
+
+
+# ---------------------------------------------------------------------------
+# Push: registro dos aparelhos
+# ---------------------------------------------------------------------------
+
+@router.post("/device-token", status_code=204)
+def register_device_token(
+    payload: DeviceTokenRegister,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Registra o aparelho para receber push. O app chama isto depois de o usuário
+    conceder a permissão de notificação e o FCM devolver o token.
+
+    Chamar de novo com o mesmo token só atualiza `last_seen_at` — o app pode
+    reenviar a cada abertura sem criar duplicatas.
+    """
+    push_service.register_token(
+        current_user["id"], payload.token, payload.platform
+    )
+
+
+@router.delete("/device-token", status_code=204)
+def delete_device_token(
+    payload: DeviceTokenRegister,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Remove o aparelho (logout). Sem isto, quem fez logout continuaria recebendo
+    push das notificações da conta.
+    """
+    push_service.remove_token(payload.token, current_user["id"])

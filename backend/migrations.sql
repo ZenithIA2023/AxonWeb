@@ -530,3 +530,33 @@ alter table public.weekly_reports
 create index if not exists weekly_reports_user_unseen_idx
   on public.weekly_reports(user_id, period_type, period_start desc)
   where seen_at is null;
+
+-- =============================================
+-- Migration 22: device_tokens — entrega de push (FCM)
+-- ---------------------------------------------
+-- Fase 3 do plano da Play Store. Até aqui as notificações do Axon só existiam
+-- dentro do app: quem não abrisse, não via. Esta tabela guarda o endereço de
+-- cada aparelho (o registration token do FCM) para que o backend consiga
+-- entregar a notificação na tela de bloqueio.
+--
+-- Um usuário pode ter vários aparelhos, e o MESMO aparelho pode ser usado por
+-- contas diferentes (celular emprestado, conta de teste). Por isso a unicidade
+-- é do token sozinho, não do par (user_id, token): o FCM emite um token por
+-- instalação do app, e ele precisa pertencer a um único usuário por vez — senão
+-- o dono anterior continuaria recebendo os push do novo.
+--
+-- `last_seen_at` permite limpar tokens de aparelhos que sumiram há meses.
+-- =============================================
+
+create table if not exists public.device_tokens (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  token text not null unique,
+  platform text not null default 'android',
+  created_at timestamptz not null default now(),
+  last_seen_at timestamptz not null default now()
+);
+
+-- Envio: "todos os aparelhos deste usuário".
+create index if not exists device_tokens_user_idx
+  on public.device_tokens(user_id);

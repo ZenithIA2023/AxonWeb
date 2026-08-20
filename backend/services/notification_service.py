@@ -141,7 +141,39 @@ def create_notification(
         payload["action"] = action
 
     res = supabase.table("notifications").insert(payload).execute()
-    return res.data[0] if res.data else {}
+    created = res.data[0] if res.data else {}
+
+    # Entrega no aparelho. A notificação já está gravada neste ponto: o push é
+    # o mensageiro, não o dado. `send_to_user` devolve na hora (o envio real
+    # roda em thread), então o scheduler que chama isto em laço não espera rede.
+    if created:
+        _push(user_id, notif_type, title, body, action)
+
+    return created
+
+
+def _push(user_id: str, notif_type: str, title: str, body: str,
+          action: dict | None) -> None:
+    """
+    Dispara o push da notificação recém-criada.
+
+    Import local de propósito: `push_service` importa `database`, como este
+    módulo, e o import no topo criaria um ciclo. Todo erro é engolido — falha
+    de entrega não pode derrubar a criação da notificação.
+    """
+    try:
+        from services import push_service
+
+        # O app usa isto para abrir a tela certa ao tocar na notificação. O
+        # tipo vem do envelope da notificação; o `action` carrega o alvo
+        # (task_id) quando existe — ele não tem campo "type".
+        data = {"type": notif_type}
+        if action and action.get("task_id"):
+            data["task_id"] = action["task_id"]
+
+        push_service.send_to_user(user_id, title, body, data)
+    except Exception as e:
+        print(f"[notifications] push falhou (notificação foi criada): {e}", flush=True)
 
 
 def create_improvement_guarded(
