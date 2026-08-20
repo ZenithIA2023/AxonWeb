@@ -4,6 +4,12 @@
 *serviceAccountKey*.json
 google-services.json
 
+# Keystore de assinatura: perdê-la impede atualizar o app publicado, e
+# vazá-la permite que terceiros assinem builds falsos como se fossem nossos.
+*.jks
+*.keystore
+keystore.properties
+
 # Rede de segurança: qualquer .json solto na RAIZ do repo. Nenhum arquivo
 # legítimo do projeto mora aqui — os que importam estão em axonweb/ e backend/.
 # Credenciais baixadas costumam cair na raiz, e é assim que vazam.
