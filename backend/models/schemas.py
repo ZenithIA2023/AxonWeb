@@ -258,6 +258,11 @@ class GoogleConnectResponse(BaseModel):
 
 # --- Daily Log ---
 
+# Marcador de dia livre: viaja junto dos períodos porque o usuário o marca na
+# mesma seção da tela, mas NÃO é um período (sem faixa de horário, sem posição
+# no ranking). Ver services/daily_rest.DAY_OFF_TAG — os dois têm de concordar.
+_DAY_OFF_MARKER = "dia_livre"
+
 _VALID_PEAK_PERIODS = {
     "madrugada", "cedo_manha", "manha",
     "inicio_tarde", "fim_tarde", "inicio_noite", "noite",
@@ -279,9 +284,41 @@ class DailyLogCreate(BaseModel):
     mood_tags:           list[str]     = []     # ["ansioso", "tranquilo"]
     productivity_rating: Optional[int] = None   # 1–5
     productivity_tags:   list[str]     = []     # ["em_flow"]
-    peak_periods:        list[str]     = []     # até 2 slugs de período
+    peak_periods:        list[str]     = []     # até 3 slugs, ORDENADOS (0 = mais produtivo)
     exercised:           Optional[bool] = None
+    is_day_off:          bool           = False   # dia de descanso deliberado
     notes:               Optional[str]  = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _extrair_dia_livre(cls, data):
+        """
+        Tira o marcador de dia livre de `peak_periods` e liga `is_day_off`.
+
+        O frontend mostra "Dia livre" na mesma seção dos períodos porque é ali
+        que a pergunta faz sentido para quem responde ("e se não teve pico
+        nenhum?"), mas ele não é um período: não tem faixa de horário nem
+        posição no ranking. Se ficasse na lista, o validador o rejeitaria como
+        período inválido e o registro inteiro falharia.
+
+        Roda em mode="before" para acontecer ANTES da validação dos períodos.
+        Os dois convivem: marcar dia livre e ainda apontar que rendeu bem de
+        manhã é informação legítima, e os períodos seguem calibrando normal.
+        """
+        if not isinstance(data, dict):
+            return data
+        periodos = data.get("peak_periods")
+        if isinstance(periodos, list) and _DAY_OFF_MARKER in periodos:
+            data = {**data, "peak_periods": [], "is_day_off": True}
+        elif data.get("is_day_off") and isinstance(periodos, list) and periodos:
+            # Dia livre e períodos de pico são respostas que se excluem: ou o
+            # dia foi de descanso, ou houve um momento mais produtivo. A tela já
+            # impede a combinação, mas o schema é a última porta — sem isto, um
+            # cliente antigo (ou o app offline reenviando um rascunho gravado
+            # antes desta regra) gravaria os dois e a calibração aprenderia
+            # horários de um dia que o usuário disse não ter trabalhado.
+            data = {**data, "peak_periods": []}
+        return data
 
     @field_validator("date")
     @classmethod
@@ -312,8 +349,24 @@ class DailyLogCreate(BaseModel):
     @field_validator("peak_periods")
     @classmethod
     def _validate_peak_periods(cls, v: list[str]) -> list[str]:
-        if len(v) > 2:
-            raise ValueError("máximo de 2 períodos de pico")
+        """
+        Até 3 períodos, em ORDEM de produtividade percebida (posição 0 = o mais
+        produtivo do dia). A ordem é dado, não apresentação: a calibração pesa
+        cada posição de forma diferente.
+
+        Repetição é rejeitada porque a lista é um ranking — o mesmo período não
+        pode ser 1º e 2º ao mesmo tempo. Sem esta checagem, ["manha", "manha"]
+        contaria a manhã duas vezes na calibração.
+
+        O marcador de dia livre é removido antes daqui por
+        `_extrair_dia_livre` (model_validator), que também liga `is_day_off` —
+        um field_validator não conseguiria escrever em outro campo, e sem isso
+        marcar dia livre no frontend seria descartado em silêncio.
+        """
+        if len(v) > 3:
+            raise ValueError("máximo de 3 períodos de pico")
+        if len(set(v)) != len(v):
+            raise ValueError("períodos de pico não podem se repetir")
         for slug in v:
             if slug not in _VALID_PEAK_PERIODS:
                 raise ValueError(f"período inválido: {slug}")
@@ -356,6 +409,7 @@ class DailyLogResponse(BaseModel):
     productivity_tags:   list[str]      = []
     peak_periods:        list[str]      = []
     exercised:           Optional[bool] = None
+    is_day_off:          bool           = False
     notes:               Optional[str]  = None
     created_at:          str
     updated_at:          str

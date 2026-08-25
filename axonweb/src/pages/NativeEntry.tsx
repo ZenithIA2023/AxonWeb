@@ -10,11 +10,17 @@ import * as api from "../lib/api";
  * app instalado significa que o usuário vê a tela de vendas piscar toda vez que
  * abre, enquanto uma chamada de rede decide para onde ir.
  *
- * Aqui a decisão é local e instantânea: existe sessão salva? vai para o app;
- * senão, login. A renovação do token continua acontecendo, mas no primeiro
- * request autenticado (`request()` em lib/api.ts já trata o 401 renovando),
- * fora do caminho de abertura.
+ * Aqui a decisão é local e instantânea: existe sessão salva E recente? vai para
+ * o app; senão, login. A renovação do token continua acontecendo, mas no
+ * primeiro request autenticado (`request()` em lib/api.ts já trata o 401
+ * renovando), fora do caminho de abertura.
+ *
+ * `hasFreshSession` (e não `isLoggedIn`) porque a janela de 7 dias de
+ * inatividade vale também aqui: antes o app só checava se havia token, então a
+ * sessão no celular nunca expirava — quem passasse um mês sem abrir entrava
+ * direto. A contagem é por dispositivo, então usar o site não renova o prazo
+ * deste aparelho.
  */
 export default function NativeEntry() {
-  return <Navigate to={api.isLoggedIn() ? "/dashboard" : "/login"} replace />;
+  return <Navigate to={api.hasFreshSession() ? "/dashboard" : "/login"} replace />;
 }

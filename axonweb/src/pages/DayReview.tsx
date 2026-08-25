@@ -30,6 +30,27 @@ const DEFAULT_PRODUCTIVITY_TAGS: TagItem[] = PRODUCTIVITY_TAGS.map((t) => ({
   label: t.label,
 }));
 
+// Marcador de dia livre. Espelha backend/services/daily_rest.DAY_OFF_TAG.
+// Ele viaja junto de `peak_periods` porque o usuário o marca na mesma seção da
+// tela, mas NÃO é um período: sem faixa de horário e sem posição no ranking. O
+// backend o separa antes de validar (models/schemas._extrair_dia_livre).
+const DAY_OFF = "dia_livre";
+
+// Espelha daily_rest.resolve_day_off. Usado ao restaurar o formulário: um
+// registro salvo só com o marcador dentro de peak_periods reabriria com o
+// botão apagado sem isto.
+function resolveDayOff(
+  explicit: boolean | null | undefined,
+  peakPeriods: string[] | null | undefined
+): boolean {
+  return !!explicit || (peakPeriods ?? []).includes(DAY_OFF);
+}
+
+// O marcador nunca deve virar um "período" selecionado na tela.
+function stripDayOff(peakPeriods: string[] | null | undefined): string[] {
+  return (peakPeriods ?? []).filter((p) => p !== DAY_OFF);
+}
+
 type Props = {
   isOpen: boolean;
   onClose: () => void;
@@ -64,8 +85,9 @@ export default function DayReview({
     existing?.productivity_rating ?? null
   );
   const [prodTags, setProdTags] = useState<string[]>(existing?.productivity_tags ?? []);
-  const [peakPeriods, setPeakPeriods] = useState<string[]>(existing?.peak_periods ?? []);
+  const [peakPeriods, setPeakPeriods] = useState<string[]>(stripDayOff(existing?.peak_periods));
   const [exercised, setExercised] = useState<boolean>(existing?.exercised ?? false);
+  const [isDayOff, setIsDayOff] = useState<boolean>(existing?.is_day_off ?? false);
   const [notes, setNotes] = useState(existing?.notes ?? "");
   // ---------------------------------------------------------------------------
   // Estado de envio e mensagens de erro
@@ -106,7 +128,8 @@ export default function DayReview({
     setMoodTags(existing?.mood_tags ?? []);
     setProdRating(existing?.productivity_rating ?? null);
     setProdTags(existing?.productivity_tags ?? []);
-    setPeakPeriods(existing?.peak_periods ?? []);
+    setPeakPeriods(stripDayOff(existing?.peak_periods));
+    setIsDayOff(resolveDayOff(existing?.is_day_off, existing?.peak_periods));
     setExercised(existing?.exercised ?? false);
     setNotes(existing?.notes ?? "");
     setError(null);
@@ -149,7 +172,10 @@ export default function DayReview({
         if (d.mood_tags) setMoodTags(d.mood_tags);
         if (d.productivity_rating != null) setProdRating(d.productivity_rating);
         if (d.productivity_tags) setProdTags(d.productivity_tags);
-        if (d.peak_periods) setPeakPeriods(d.peak_periods);
+        if (d.peak_periods) setPeakPeriods(stripDayOff(d.peak_periods));
+        if (typeof d.is_day_off === "boolean" || d.peak_periods) {
+          setIsDayOff(resolveDayOff(d.is_day_off, d.peak_periods));
+        }
         if (d.exercised != null) setExercised(d.exercised);
         if (d.notes) setNotes(d.notes);
         setHasDraft(true);
@@ -188,7 +214,8 @@ export default function DayReview({
             mood_tags: moodTags,
             productivity_rating: prodRating,
             productivity_tags: prodTags,
-            peak_periods: peakPeriods,
+            peak_periods: isDayOff ? [DAY_OFF] : peakPeriods,
+            is_day_off: isDayOff,
             exercised,
             notes,
           },
@@ -213,6 +240,7 @@ export default function DayReview({
     prodRating,
     prodTags,
     peakPeriods,
+    isDayOff,
     exercised,
     notes,
   ]);
@@ -239,13 +267,28 @@ export default function DayReview({
     }
   }
 
-  // Limita os períodos de pico a 2 para destacar os momentos mais relevantes.
+  // Até 3 períodos, na ORDEM em que o usuário clica: o 1º clique é o período
+  // mais produtivo do dia. O backend usa essa ordem para pesar a calibração
+  // (1º com peso 1.0, 2º com 0.75, 3º com 0.5), então remover um item do meio
+  // precisa reordenar os seguintes — o filter abaixo já faz isso naturalmente.
   function togglePeakPeriod(slug: string) {
     if (peakPeriods.includes(slug)) {
       setPeakPeriods(peakPeriods.filter((p) => p !== slug));
-    } else if (peakPeriods.length < 2) {
+    } else if (peakPeriods.length < 3) {
+      // Escolher um período contradiz "dia livre": ou o dia foi de descanso,
+      // ou houve um momento mais produtivo. Desmarcamos em vez de bloquear o
+      // clique — o usuário está corrigindo a resposta anterior, e travar o
+      // botão faria parecer que o app quebrou.
+      setIsDayOff(false);
       setPeakPeriods([...peakPeriods, slug]);
     }
+  }
+
+  // Dia livre é exclusivo: marcar limpa os períodos já escolhidos.
+  function toggleDayOff() {
+    const next = !isDayOff;
+    setIsDayOff(next);
+    if (next) setPeakPeriods([]);
   }
 
   // ---------------------------------------------------------------------------
@@ -266,7 +309,8 @@ export default function DayReview({
     setMoodTags(existing?.mood_tags ?? []);
     setProdRating(existing?.productivity_rating ?? null);
     setProdTags(existing?.productivity_tags ?? []);
-    setPeakPeriods(existing?.peak_periods ?? []);
+    setPeakPeriods(stripDayOff(existing?.peak_periods));
+    setIsDayOff(resolveDayOff(existing?.is_day_off, existing?.peak_periods));
     setExercised(existing?.exercised ?? false);
     setNotes(existing?.notes ?? "");
 
@@ -347,7 +391,12 @@ export default function DayReview({
         mood_tags: moodTags,
         productivity_rating: prodRating ?? undefined,
         productivity_tags: prodTags,
-        peak_periods: peakPeriods,
+        // Com dia livre marcado, peakPeriods já está vazio (as respostas se
+        // excluem), então o array leva só o marcador. Mandamos também o
+        // booleano de propósito: se um dia o array mudar de forma, a
+        // informação não se perde.
+        peak_periods: isDayOff ? [DAY_OFF] : peakPeriods,
+        is_day_off: isDayOff,
         exercised,
         notes: notes.trim() || undefined,
       });
@@ -440,6 +489,7 @@ export default function DayReview({
               </div>
             )}
 
+
             {/* Sono: horários, avaliação e até 3 tags. */}
             <Section icon={Moon} title="Como você dormiu?">
               <div className="mb-3 grid grid-cols-2 gap-3">
@@ -485,18 +535,35 @@ export default function DayReview({
               />
             </Section>
 
-            {/* Pico produtivo: até 2 janelas para alimentar padrões futuros. */}
+            {/* Pico produtivo: até 3 janelas ORDENADAS por produtividade. A ordem
+                de clique é o próprio dado — o badge numerado existe para que o
+                usuário perceba que ela conta. */}
             <Section icon={Zap} title="Quando você foi mais produtivo? (opcional)">
+              <p className="mb-3 text-xs text-soft">
+                {isDayOff
+                  ? "Dia marcado como livre. Toque nele de novo para escolher períodos."
+                  : "Toque em até 3 períodos, começando pelo mais produtivo. Se foi dia de descanso, marque \"Dia livre\"."}
+              </p>
               <div className="flex flex-wrap gap-2">
                 {PEAK_PERIODS.map((p) => {
-                  const isSelected = peakPeriods.includes(p.slug);
-                  const atLimit = !isSelected && peakPeriods.length >= 2;
+                  const rank = peakPeriods.indexOf(p.slug); // -1 = não selecionado
+                  const isSelected = rank >= 0;
+                  // Dia livre desabilita os períodos: as duas respostas se excluem.
+                  const atLimit =
+                    !isSelected && (isDayOff || peakPeriods.length >= 3);
                   return (
                     <button
                       key={p.slug}
                       type="button"
                       onClick={() => togglePeakPeriod(p.slug)}
                       disabled={atLimit}
+                      aria-label={
+                        isSelected
+                          ? `${p.label}, ${p.hours}, ${rank + 1}º período mais produtivo. Toque para remover.`
+                          : isDayOff
+                          ? `${p.label}, ${p.hours}. Indisponível: o dia está marcado como livre.`
+                          : `${p.label}, ${p.hours}. Toque para marcar.`
+                      }
                       className={`flex flex-col items-start rounded-2xl border px-3.5 py-2.5 text-left transition active:scale-[0.96] ${
                         isSelected
                           ? "border-accent-soft bg-accent-soft text-accent"
@@ -505,6 +572,16 @@ export default function DayReview({
                           : "border-soft bg-surface-muted text-secondary"
                       }`}
                     >
+                      {/* Posição na ordem. O aria-label acima já carrega a mesma
+                          informação, então aqui o número é puramente visual. */}
+                      {isSelected && (
+                        <span
+                          className="mb-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[var(--accent)] text-[0.6rem] font-bold text-white"
+                          aria-hidden="true"
+                        >
+                          {rank + 1}
+                        </span>
+                      )}
                       <span className="text-xs font-semibold">{p.label}</span>
                       <span
                         className={`text-[0.62rem] ${
@@ -516,10 +593,41 @@ export default function DayReview({
                     </button>
                   );
                 })}
+
+                {/* Dia livre: último da grade, com as mesmas classes dos
+                    períodos para não destoar. Não é um período — sem faixa de
+                    horário e sem posição no ranking — então não recebe badge
+                    numerado nem entra no limite de 3, e o `atLimit` dos outros
+                    nunca o desabilita. Convive com eles: dá para ter folgado e
+                    ainda assim ter rendido bem de manhã. */}
+                <button
+                  type="button"
+                  onClick={toggleDayOff}
+                  aria-pressed={isDayOff}
+                  aria-label={
+                    isDayOff
+                      ? "Dia livre marcado. Toque para desmarcar."
+                      : "Dia livre ou dia de descanso. Toque para marcar."
+                  }
+                  className={`flex flex-col items-start rounded-2xl border px-3.5 py-2.5 text-left transition active:scale-[0.96] ${
+                    isDayOff
+                      ? "border-accent-soft bg-accent-soft text-accent"
+                      : "border-soft bg-surface-muted text-secondary"
+                  }`}
+                >
+                  <span className="text-xs font-semibold">Dia livre</span>
+                  <span
+                    className={`text-[0.62rem] ${
+                      isDayOff ? "text-accent" : "text-soft"
+                    }`}
+                  >
+                    dia de descanso
+                  </span>
+                </button>
               </div>
-              {peakPeriods.length >= 2 && (
+              {peakPeriods.length >= 3 && (
                 <p className="mt-2 text-xs text-soft">
-                  Máximo de 2 períodos selecionado
+                  Máximo de 3 períodos. Toque em um selecionado para remover.
                 </p>
               )}
             </Section>
