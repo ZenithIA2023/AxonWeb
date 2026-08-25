@@ -35,8 +35,8 @@ depois. O login com Google continua funcionando — ele usa só escopos básicos
 
 | Item | Quem | Estado |
 |---|---|---|
-| Política de privacidade em URL pública | Bernardo | rascunho pronto (`POLITICA_PRIVACIDADE.md`), falta preencher `[...]` e hospedar |
-| URL de exclusão de conta | Bernardo | **não existe** — a Play Console exige uma página acessível sem instalar o app |
+| Política de privacidade em URL pública | — | ✅ https://axonapp.tech/legal/privacidade.html |
+| URL de exclusão de conta | — | ✅ https://axonapp.tech/legal/excluir-conta.html |
 | Conta de teste para o revisor | Bernardo | criar, com o questionário já respondido |
 | Screenshots (mín. 2) | Bernardo | pendente — sugestões na `FICHA_LOJA.md` |
 | Feature graphic 1024×500 | Bernardo | pendente |
@@ -50,15 +50,15 @@ depois. O login com Google continua funcionando — ele usa só escopos básicos
 
 Não são da fase 5 no papel, mas **impedem uma publicação real**:
 
-1. **O backend precisa sair do Codespace.** Hoje o APK aponta para um túnel que
-   morre quando o Codespace hiberna. Sem backend estável, o app publicado não
-   funciona. → Railway.
-2. **Variáveis no Railway**: `CORS_ORIGINS=https://localhost` (fase 1) e
-   `FIREBASE_CREDENTIALS_JSON` (fase 3, conteúdo colado — não há disco lá).
-3. **`GOOGLE_REDIRECT_URI` e `FRONTEND_URL`** apontam para o Codespace; precisam
-   apontar para produção.
-4. **SHA-1 da chave de release** no Google Console, junto com o de debug
-   (fase 6).
+1. ✅ **Backend em produção** — VPS Hostinger, `https://api.axonapp.tech`,
+   systemd com restart automático (validado num reboot real).
+2. ✅ **Site em produção** — `https://axonapp.tech`, HTTPS via Let's Encrypt.
+3. ⬜ **Google Cloud Console**: cadastrar o redirect
+   `https://api.axonapp.tech/auth/google/callback` e a origem
+   `https://axonapp.tech`. Sem isso o login com Google falha em produção.
+4. ⬜ **SHA-1 da chave de release** no Google Console, junto com o de debug:
+   `AE:A6:A5:08:49:7A:AF:AF:69:8C:34:BB:F0:AB:34:F0:60:2B:57:B5`
+5. ⬜ **Recompilar o app** com `VITE_API_URL=https://api.axonapp.tech`.
 
 ## Ordem sugerida
 
