@@ -212,6 +212,29 @@ def update_planning_preferences(body: PlanningPreferences, current_user: dict = 
 
 # --- Tag preferences ---
 
+
+def _merge_defaults(saved: list[dict], defaults: list[TagItem]) -> list[TagItem]:
+    """
+    Lista salva do usuário + tags padrão que ela ainda não tem.
+
+    A lista salva é uma cópia congelada dos padrões do dia em que o usuário
+    personalizou pela primeira vez. Sem este merge, quem já mexeu nas tags
+    nunca recebia uma tag padrão nova — foi o que aconteceu com "Dia livre":
+    a tag existia no código, mas não aparecia para ninguém que já tivesse
+    salvo preferências.
+
+    A tag padrão nova entra no FIM para não reordenar o que o usuário já
+    conhece. Remoções feitas por ele são respeitadas dentro da sessão, mas uma
+    padrão que ele apagou volta na próxima leitura — o preço de não termos uma
+    lista de "padrões dispensados"; preferível a esconder uma tag com efeito
+    no backend.
+    """
+    itens = [TagItem(**t) for t in saved]
+    conhecidos = {t.slug for t in itens}
+    itens.extend(d for d in defaults if d.slug not in conhecidos)
+    return itens
+
+
 @router.get("/tags", response_model=TagPreferences)
 def get_tags(current_user: dict = Depends(get_current_user)):
     user_id = current_user["id"]
@@ -227,9 +250,11 @@ def get_tags(current_user: dict = Depends(get_current_user)):
         return _DEFAULT_TAGS
 
     return TagPreferences(
-        sleep=[TagItem(**t) for t in custom.get("sleep", [])],
-        mood=[TagItem(**t) for t in custom.get("mood", [])],
-        productivity=[TagItem(**t) for t in custom.get("productivity", [])],
+        sleep=_merge_defaults(custom.get("sleep", []), _DEFAULT_TAGS.sleep),
+        mood=_merge_defaults(custom.get("mood", []), _DEFAULT_TAGS.mood),
+        productivity=_merge_defaults(
+            custom.get("productivity", []), _DEFAULT_TAGS.productivity
+        ),
     )
 
 

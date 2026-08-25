@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { Link, useNavigate } from "react-router-dom";
 import { ArrowRight, Star } from "lucide-react";
 
-import { refreshSession, saveSession } from "../lib/api";
+import { hasFreshSession, logout, refreshSession, saveSession } from "../lib/api";
 import LandingPurpleBackground from "../components/landing/LandingPurpleBackground";
 import LandingProductivityProblem from "../components/landing/LandingProductivityProblem";
 import LandingAxonCapabilities from "../components/landing/LandingAxonCapabilities";
@@ -21,8 +21,6 @@ import starDecoration from "../assets/decorations/star.svg";
 // Hero mobile-first com suporte real a light/dark mode.
 // No light mode, a landing fica clara/lavanda.
 // No dark mode, mantém o visual roxo escuro original.
-
-const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
 const heroMetrics = [
   {
@@ -42,20 +40,16 @@ const heroMetrics = [
 export default function LandingPage() {
   const navigate = useNavigate();
 
-  // Mantém o comportamento atual: usuários logados não ficam presos na landing.
+  // Usuários logados não ficam presos na landing: vão direto para o dashboard.
+  // A janela de inatividade mora em `hasFreshSession` (lib/api), a mesma que o
+  // NativeEntry usa — antes a regra dos 7 dias existia só aqui, duplicada, e o
+  // app instalado nunca expirava a sessão. `hasFreshSession` também limpa a
+  // sessão vencida, então aqui basta parar quando ela devolve false.
   useEffect(() => {
+    if (!hasFreshSession()) return;
+
     const refreshToken = localStorage.getItem("axon_refresh_token");
-    const lastActive = Number(localStorage.getItem("axon_last_active") ?? "0");
-
     if (!refreshToken) return;
-
-    if (Date.now() - lastActive > SEVEN_DAYS_MS) {
-      localStorage.removeItem("axon_token");
-      localStorage.removeItem("axon_refresh_token");
-      localStorage.removeItem("axon_user");
-      localStorage.removeItem("axon_last_active");
-      return;
-    }
 
     refreshSession(refreshToken)
       .then((res) => {
@@ -63,10 +57,10 @@ export default function LandingPage() {
         navigate("/dashboard", { replace: true });
       })
       .catch(() => {
-        localStorage.removeItem("axon_token");
-        localStorage.removeItem("axon_refresh_token");
-        localStorage.removeItem("axon_user");
-        localStorage.removeItem("axon_last_active");
+        // Refresh recusado pelo servidor (token revogado/expirado): a sessão
+        // local não vale mais nada, então sai limpo em vez de deixar restos
+        // que causariam 401 na próxima tela.
+        logout();
       });
   }, [navigate]);
 

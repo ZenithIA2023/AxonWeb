@@ -25,6 +25,13 @@ MIN_DATA_POINTS = 14   # mínimo de registros diários para usar o perfil person
 TARGET_PEAK  = 92.0    # score alvo para blocos declarados como período de pico
 TARGET_SLEEP = 12.0    # score alvo para blocos durante o sono (antes de acordar)
 
+# Peso de cada posição no ranking de períodos de pico (Migration 23).
+# O usuário escolhe até 3 períodos EM ORDEM; o 1º é o pico de verdade e puxa o
+# score cheio, os seguintes puxam menos. Sem isso, ordenar não teria efeito
+# nenhum sobre o perfil de energia — seria só enfeite na tela.
+# Índice = posição na lista; posições além da 3ª usam o último peso.
+PEAK_RANK_WEIGHT = (1.0, 0.75, 0.5)
+
 # ── Mapeamento período → índices de bloco (cada bloco = 90 min) ───────────────
 # Bloco 0 = 00:00, bloco 1 = 01:30, ..., bloco 15 = 22:30
 PERIOD_TO_BLOCKS: dict[str, list[int]] = {
@@ -111,25 +118,52 @@ def calibrate_from_log(user_id: str, chronotype: str, log: dict) -> None:
             except Exception:
                 pass
 
-        # Sinal 2 — período mais produtivo declarado
+        # Sinal 2 — períodos mais produtivos declarados, EM ORDEM
         # O alvo é escalado pelo rating de produtividade do dia (1–5):
         # um dia "em flow" (5) boosta mais do que um dia regular (3).
+        #
+        # A partir da Migration 23 a lista é um ranking (posição 0 = o mais
+        # produtivo), então cada posição puxa o score com força diferente —
+        # ver PEAK_RANK_WEIGHT. Antes usávamos um set() e o 2º lugar puxava
+        # tanto quanto o 1º, o que apagava justamente a informação que o
+        # usuário se deu ao trabalho de ordenar.
+        #
+        # Um bloco citado em duas posições (períodos vizinhos compartilham
+        # blocos) recebe o peso da MELHOR posição, não a soma: aparecer em 1º
+        # e 3º não pode render menos que aparecer só em 1º.
         peak_periods = log.get("peak_periods") or []
         prod_rating  = log.get("productivity_rating")
-        if peak_periods and prod_rating:
-            prod_scale   = prod_rating / 5.0                   # 0.2 → 1.0
-            target       = TARGET_PEAK * prod_scale + 60.0 * (1 - prod_scale)
-            peak_idx_set = set()
-            for period in peak_periods:
-                peak_idx_set.update(PERIOD_TO_BLOCKS.get(period, []))
-            for i in peak_idx_set:
+        aprendeu_horario = bool(peak_periods and prod_rating)
+        if aprendeu_horario:
+            prod_scale = prod_rating / 5.0                     # 0.2 → 1.0
+            melhor_peso: dict[int, float] = {}
+            for rank, period in enumerate(peak_periods):
+                peso = PEAK_RANK_WEIGHT[min(rank, len(PEAK_RANK_WEIGHT) - 1)]
+                for i in PERIOD_TO_BLOCKS.get(period, []):
+                    if peso > melhor_peso.get(i, 0.0):
+                        melhor_peso[i] = peso
+            for i, peso in melhor_peso.items():
+                alvo_rank = TARGET_PEAK * peso + 60.0 * (1 - peso)
+                target    = alvo_rank * prod_scale + 60.0 * (1 - prod_scale)
                 scores[i] = (1 - ALPHA) * scores[i] + ALPHA * target
 
-        supabase.table("user_energy_profiles").update({
+        # data_points conta apenas os dias que ENSINARAM algo sobre horários —
+        # ou seja, os que rodaram o Sinal 2. Um registro sem período marcado
+        # (ou um dia livre, que zera os períodos por definição) não contribui
+        # com informação de horário nenhuma; contá-lo faria o perfil se
+        # declarar "calibrado" com muito menos sinal do que os 14 sugerem.
+        # O Sinal 1 (horário de acordar) continua sendo aplicado nesses dias,
+        # só não conta para o limiar.
+        payload = {
             "block_scores":    json.dumps(scores),
-            "data_points":     profile["data_points"] + 1,
             "last_calibrated": datetime.now(timezone.utc).isoformat(),
-        }).eq("user_id", user_id).execute()
+        }
+        if aprendeu_horario:
+            payload["data_points"] = profile["data_points"] + 1
+
+        supabase.table("user_energy_profiles").update(payload).eq(
+            "user_id", user_id
+        ).execute()
 
     except Exception:
         pass  # calibração nunca interrompe o fluxo principal

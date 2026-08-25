@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from auth_helper import get_current_user
 from database import supabase
 from models.schemas import DailyLogCreate, DailyLogDraft, DailyLogResponse
-from services import memory_service, user_tz, calibration_service
+from services import memory_service, user_tz, calibration_service, daily_rest
 
 router = APIRouter(prefix="/daily-log", tags=["daily-log"])
 
@@ -71,6 +71,10 @@ def upsert_daily_log(
         "productivity_tags":   body.productivity_tags,
         "peak_periods":        body.peak_periods,
         "exercised":           body.exercised,
+        # "Dia livre" é marcado na seção dos períodos de pico, mas não é um
+        # período: o schema já o tirou de body.peak_periods, então aqui só
+        # resta o campo explícito. Ver services/daily_rest.
+        "is_day_off":          body.is_day_off,
         "notes":               body.notes,
     }
 

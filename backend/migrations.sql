@@ -560,3 +560,36 @@ create table if not exists public.device_tokens (
 -- Envio: "todos os aparelhos deste usuário".
 create index if not exists device_tokens_user_idx
   on public.device_tokens(user_id);
+
+-- =============================================
+-- Migration 23: dia livre + até 3 períodos de pico ORDENADOS
+-- ---------------------------------------------
+-- Duas mudanças no registro diário (DayReview).
+--
+-- 1) `peak_periods` passa de no máximo 2 para no máximo 3 períodos, e a ORDEM
+--    do array passa a ser significativa: posição 0 = período mais produtivo,
+--    1 = segundo, 2 = terceiro. Não há mudança de tipo — text[] já preserva a
+--    ordem de inserção — então os registros antigos continuam válidos: um
+--    array de 1 ou 2 itens simplesmente não usa as posições seguintes. O que
+--    muda é quem LÊ: a calibração agora pondera por posição (ver
+--    calibration_service.PEAK_RANK_WEIGHT) em vez de tratar todos como iguais.
+--    Por isso não existe migração de dados aqui — só de interpretação.
+--
+-- 2) `is_day_off`: o usuário marca que aquele dia foi de descanso deliberado.
+--    Sem isso, um domingo de folga é indistinguível de um dia perdido: ambos
+--    aparecem como produtividade 1 e zero tarefas. Os insights já vinham
+--    lendo esses dias como "seu ponto mais baixo da semana", quando na
+--    verdade eram descanso planejado.
+--
+--    NOT NULL DEFAULT false: registro antigo não vira "dia livre" por omissão,
+--    e o backend nunca precisa tratar NULL como um terceiro estado.
+-- =============================================
+
+alter table public.daily_logs
+  add column if not exists is_day_off boolean not null default false;
+
+comment on column public.daily_logs.is_day_off is
+  'Dia de descanso deliberado. Distingue folga planejada de dia improdutivo — a análise de produtividade deve excluir estes dias em vez de contá-los como baixo desempenho.';
+
+comment on column public.daily_logs.peak_periods is
+  'Até 3 slugs de período, ORDENADOS por produtividade percebida: posição 0 = mais produtivo. Arrays de tamanho 1-2 (registros anteriores à Migration 23) permanecem válidos.';

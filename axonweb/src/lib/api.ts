@@ -23,6 +23,47 @@ function clearSessionItems() {
 }
 
 /**
+ * Janela de inatividade que mantém o login automático.
+ *
+ * O carimbo `axon_last_active` vive no storage do próprio dispositivo, então a
+ * contagem é POR DISPOSITIVO e independente: usar o site não renova o prazo do
+ * celular, nem o contrário. É o comportamento pedido — quem passou 7 dias sem
+ * abrir ESTE aparelho autentica de novo nele, tenha usado outro ou não.
+ */
+export const AUTO_LOGIN_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Existe sessão salva e ela ainda está dentro da janela de inatividade?
+ *
+ * Fonte única da decisão de auto-login, usada pela landing (web) e pelo
+ * NativeEntry (app). Antes cada uma decidia por conta: a web aplicava os 7
+ * dias e o app só checava se havia token, então no celular a sessão nunca
+ * expirava por inatividade.
+ *
+ * Sessão presente mas vencida é descartada aqui mesmo — deixar o token velho
+ * no storage faria a próxima chamada falhar com 401 no meio do app, em vez de
+ * mandar para o login de forma limpa.
+ */
+export function hasFreshSession(): boolean {
+  if (!isLoggedIn()) return false;
+
+  const store = isRemembered() ? localStorage : sessionStorage;
+  const lastActive = Number(store.getItem("axon_last_active") ?? "0");
+
+  // Sem carimbo (sessão anterior a esta regra): trata como presença agora, para
+  // não deslogar quem estava usando normalmente na versão anterior do app.
+  if (!lastActive) {
+    store.setItem("axon_last_active", String(Date.now()));
+    return true;
+  }
+
+  if (Date.now() - lastActive <= AUTO_LOGIN_WINDOW_MS) return true;
+
+  clearSessionItems();
+  return false;
+}
+
+/**
  * Wrapper direto de fetch mantido para compatibilidade com imports existentes.
  * Use `request` abaixo quando precisar do tratamento padrão de erro/sessão.
  */
@@ -1027,6 +1068,7 @@ export interface DailyLog {
   productivity_rating: number | null;
   productivity_tags: string[];
   peak_periods: string[];
+  is_day_off: boolean;
   exercised: boolean | null;
   notes: string | null;
   created_at: string;
@@ -1044,6 +1086,7 @@ export interface DailyLogInput {
   productivity_rating?: number;
   productivity_tags?: string[];
   peak_periods?: string[];
+  is_day_off?: boolean;
   exercised?: boolean;
   notes?: string;
 }

@@ -30,12 +30,14 @@ _WEEKDAY_FULL = [
     "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"
 ]
 
-SYSTEM_PROMPT = """Você é o Axon, um analista pessoal de cronobiologia e produtividade. Recebe os dados diários de UM usuário das últimas semanas: dia da semana, horário e horas estimadas de sono, qualidade do sono, humor e produtividade percebida (escalas de 1 a 5), se houve exercício, quantas tarefas concluiu por dia, as etiquetas que o usuário escolheu para descrever o sono/humor/produtividade daquele dia (sleep_tags, mood_tags, productivity_tags) e em quais períodos ele se sentiu mais produtivo (periodos_de_pico).
+SYSTEM_PROMPT = """Você é o Axon, um analista pessoal de cronobiologia e produtividade. Recebe os dados diários de UM usuário das últimas semanas: dia da semana, horário e horas estimadas de sono, qualidade do sono, humor e produtividade percebida (escalas de 1 a 5), se houve exercício, quantas tarefas concluiu por dia, as etiquetas que o usuário escolheu para descrever o sono/humor/produtividade daquele dia (sleep_tags, mood_tags, productivity_tags), em quais períodos ele se sentiu mais produtivo (periodos_de_pico, já ordenados: "1º" é o período mais produtivo daquele dia, depois "2º" e "3º") e se aquele dia foi um descanso deliberado (dia_livre).
 
 Sua tarefa: identificar de 3 a {MAX_INSIGHTS} padrões REAIS, específicos e acionáveis nos dados — de preferência correlações entre hábitos e resultados (ex.: horas de sono × tarefas concluídas, horário de dormir × humor, exercício × produtividade percebida, etiquetas recorrentes × produtividade, dia da semana × qualquer resultado). Priorize os mais acionáveis: se encontrar mais de {MAX_INSIGHTS}, devolva os {MAX_INSIGHTS} melhores.
 
 Regras importantes:
 - Baseie-se EXCLUSIVAMENTE nos dados fornecidos. Nunca invente números nem fatos.
+- DIAS LIVRES: quando dia_livre for true, o usuário escolheu descansar. NUNCA os trate como baixa produtividade, falta de disciplina ou dia perdido, e não os inclua em médias de desempenho — descanso planejado que deu certo é um bom resultado, não um problema. Se quiser citá-los, fale do descanso em si (se foi respeitado, se houve regularidade), nunca como algo a corrigir.
+- ORDEM DOS PERÍODOS DE PICO: o "1º" carrega muito mais sinal que o "3º". Ao apontar o melhor horário do usuário, priorize o que aparece em 1º lugar com mais frequência; um período que só aparece em 3º é uma pista fraca.
 - As etiquetas são as palavras do próprio usuário: cite-as como ele as escreveu, sem traduzir nem reinterpretar.
 - Ao apontar um padrão de dia da semana, só faça isso se houver pelo menos 3 ocorrências daquele dia nos dados; caso contrário, não afirme que é recorrente.
 - A amostra é pequena: fale em tendências e faixas ("cerca de", "tende a", "nos dias em que"), nunca em estatísticas falsamente precisas.
@@ -59,15 +61,19 @@ def _local_date(ts: str | None, tz) -> date | None:
 
 # Períodos de pico do registro diário (slug -> rótulo legível), espelha
 # PEAK_PERIODS do frontend.
+# Slugs reais do registro diário — devem espelhar _VALID_PEAK_PERIODS em
+# models/schemas.py e PEAK_PERIODS em axonweb/src/lib/api.ts. Estavam
+# desatualizados: listavam 4 slugs que não existem (inicio_manha, fim_manha,
+# tarde) e não cobriam madrugada nem cedo_manha, então esses dois períodos
+# chegavam ao Claude como "cedo manha" cru, sem faixa de horário.
 _PEAK_LABELS = {
-    "inicio_manha":  "início da manhã",
-    "manha":         "manhã",
-    "fim_manha":     "fim da manhã",
-    "inicio_tarde":  "início da tarde",
-    "tarde":         "tarde",
-    "fim_tarde":     "fim da tarde",
-    "inicio_noite":  "início da noite",
-    "noite":         "noite",
+    "madrugada":    "madrugada (00h–05h)",
+    "cedo_manha":   "cedo da manhã (05h–08h)",
+    "manha":        "manhã (08h–12h)",
+    "inicio_tarde": "começo da tarde (12h–15h)",
+    "fim_tarde":    "fim da tarde (15h–18h)",
+    "inicio_noite": "começo da noite (18h–21h)",
+    "noite":        "noite (21h–00h)",
 }
 
 
@@ -138,10 +144,15 @@ def aggregate_daily(
             "sleep_tags": _label_tags(log.get("sleep_tags"), labels),
             "mood_tags": _label_tags(log.get("mood_tags"), labels),
             "productivity_tags": _label_tags(log.get("productivity_tags"), labels),
+            # Ordenados: o 1º é o mais produtivo do dia (ver Migration 23).
+            # O rótulo carrega a posição porque o Claude recebe isto como JSON
+            # solto — sem o "1º/2º/3º" ele não teria como saber que a ordem da
+            # lista significa alguma coisa.
             "periodos_de_pico": [
-                _PEAK_LABELS.get(p, p.replace("_", " "))
-                for p in (log.get("peak_periods") or [])
+                f"{i}º {_PEAK_LABELS.get(p, p.replace('_', ' '))}"
+                for i, p in enumerate(log.get("peak_periods") or [], start=1)
             ],
+            "dia_livre": bool(log.get("is_day_off")),
         })
 
     rows.sort(key=lambda r: r["data"])
