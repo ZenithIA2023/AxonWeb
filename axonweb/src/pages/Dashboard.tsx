@@ -139,6 +139,11 @@ export default function Dashboard() {
     undefined
   );
   const [yesterdayLog, setYesterdayLog] = useState<api.DailyLog | null>(null);
+  // Aviso de perda de ofensiva: só aparece quando fechar o pop-up realmente
+  // custaria a sequência (streak.frozen), para não virar ruído diário — se
+  // aparecesse sempre, o usuário fecharia no automático justamente no dia
+  // em que a ofensiva está em jogo.
+  const [streakWarnOpen, setStreakWarnOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState<number | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -672,13 +677,44 @@ export default function Dashboard() {
           onMenuClick={() => setIsSidebarOpen(true)}
           rightSlot={
             <div className="flex items-center gap-2">
+              {/* Ofensiva: dias seguidos com registro diário. `frozen` sinaliza
+                  que a sequência está de pé só por causa do dia perdoado — sem
+                  esse aviso o usuário não teria como saber que precisa registrar
+                  hoje para não perder tudo. */}
               <button
                 type="button"
-                className="flex h-10 min-w-10 items-center justify-center gap-1.5 rounded-2xl border border-soft bg-surface-muted px-2.5 text-secondary backdrop-blur-2xl transition active:scale-[0.96]"
-                aria-label="Ver ofensiva"
+                className={`flex h-10 min-w-10 items-center justify-center gap-1.5 rounded-2xl border px-2.5 backdrop-blur-2xl transition active:scale-[0.96] ${
+                  data?.streak.frozen
+                    ? "border-[var(--accent)] bg-accent-soft text-accent"
+                    : "border-soft bg-surface-muted text-secondary"
+                }`}
+                aria-label={
+                  data
+                    ? `Ofensiva de ${data.streak.current} ${
+                        data.streak.current === 1 ? "dia" : "dias"
+                      }.${
+                        data.streak.frozen
+                          ? " Congelada: registre hoje para não perdê-la."
+                          : data.streak.at_risk
+                          ? " Registre o dia para mantê-la."
+                          : ""
+                      }`
+                    : "Ver ofensiva"
+                }
+                title={
+                  data?.streak.frozen
+                    ? "Ofensiva congelada — registre hoje para mantê-la"
+                    : undefined
+                }
               >
                 <Flame className="h-4 w-4 text-accent" />
-                <span className="text-[0.65rem] font-black text-muted">0</span>
+                <span
+                  className={`text-[0.65rem] font-black ${
+                    data?.streak.frozen ? "text-accent" : "text-muted"
+                  }`}
+                >
+                  {data?.streak.current ?? 0}
+                </span>
               </button>
 
               <button
@@ -1066,7 +1102,13 @@ export default function Dashboard() {
 
       <DayReview
         isOpen={autoReviewOpen}
-        onClose={() => setAutoReviewOpen(false)}
+        onClose={() => {
+          setAutoReviewOpen(false);
+          // Fechar sem registrar com a ofensiva por um fio: pergunta antes de
+          // deixar passar. O aviso NÃO marca nada sozinho — só o botão de
+          // confirmação dentro dele desiste do dia.
+          if (data?.streak.frozen) setStreakWarnOpen(true);
+        }}
         existing={autoReviewDate ? yesterdayLog : todayLog}
         targetDate={autoReviewDate}
         isYesterday={!!autoReviewDate}
@@ -1076,6 +1118,68 @@ export default function Dashboard() {
           else setTodayLog(log);
         }}
       />
+
+      {/* Aviso de perda da ofensiva. Aparece só quando `streak.frozen` — ou
+          seja, quando ontem ficou em branco e hoje é a última chance. Fechar
+          este aviso (X, toque fora, botão voltar) NÃO pune: apenas o botão
+          "Perder a ofensiva" chama a API, porque um toque acidental não pode
+          custar uma sequência de forma irreversível. */}
+      {streakWarnOpen && data && (
+        <div
+          className="fixed inset-0 z-[130] flex items-end justify-center bg-black/50 p-4 backdrop-blur-sm sm:items-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="streak-warn-title"
+          onClick={() => setStreakWarnOpen(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-3xl border border-soft bg-surface p-5 shadow-card"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-2">
+              <Flame className="h-5 w-5 text-accent" />
+              <h2 id="streak-warn-title" className="text-base font-black text-primary">
+                Sua ofensiva de {data.streak.current}{" "}
+                {data.streak.current === 1 ? "dia" : "dias"} vai acabar
+              </h2>
+            </div>
+
+            <p className="mt-2 text-sm text-secondary">
+              Você ainda não registrou ontem. Se fechar sem preencher, a
+              sequência recomeça do zero — e não dá para voltar atrás.
+            </p>
+
+            <div className="mt-5 flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setStreakWarnOpen(false);
+                  setAutoReviewOpen(true);
+                }}
+                className="min-h-12 rounded-2xl bg-[var(--accent-strong)] px-6 text-sm font-semibold text-white transition active:scale-[0.98]"
+              >
+                Fazer o registro
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  // Desistência explícita: só aqui o dia é marcado como
+                  // perdido no servidor. Falha de rede não trava a tela — o
+                  // prazo vence sozinho na virada de qualquer forma.
+                  void api
+                    .forfeitStreak(data.streak.pending_date ?? undefined)
+                    .catch(() => {});
+                  setStreakWarnOpen(false);
+                  loadDashboard();
+                }}
+                className="min-h-12 rounded-2xl border border-soft bg-surface-muted px-6 text-sm font-semibold text-muted transition active:scale-[0.98]"
+              >
+                Perder a ofensiva
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <NotificationsSheet
         isOpen={isNotificationsOpen}
