@@ -479,6 +479,23 @@ export interface RoutineConsistency {
   percent: number;
 }
 
+/** Ofensiva do registro diário (foguinho). Calculada no backend a cada leitura. */
+export interface Streak {
+  /** Dias consecutivos com registro. A sequência não admite buracos. */
+  current: number;
+  longest: number;
+  /**
+   * Ontem ficou em branco e ainda dá para registrar hoje (o app aceita "ontem").
+   * Sem esse registro, a ofensiva se perde na virada.
+   */
+  frozen: boolean;
+  registered_today: boolean;
+  /** Hoje ainda em aberto com ofensiva viva. */
+  at_risk: boolean;
+  /** Dia que precisa ser registrado (ISO) — ontem se congelada, senão hoje. */
+  pending_date: string | null;
+}
+
 export interface DashboardData {
   greeting: string;
   chronotype_label: string;
@@ -494,6 +511,7 @@ export interface DashboardData {
   next_block: FocusBlock;
   day_blocks: DayBlock[];
   routine_consistency: RoutineConsistency[];
+  streak: Streak;
 }
 
 // Usado no Dashboard para carregar blocos atuais, próximos e tarefas do dia.
@@ -1110,6 +1128,21 @@ export interface DailyLogDraft {
 export function getDailyLogDraft(date?: string) {
   const qs = date ? `?date=${date}` : "";
   return request<DailyLogDraft | null>(`/daily-log/draft${qs}`);
+}
+
+/**
+ * Confirma que o usuário abre mão da ofensiva no dia pendente.
+ *
+ * O dia deixa de contar mesmo que ele registre depois — por isso só deve ser
+ * chamada a partir do botão explícito de confirmação, nunca de um `onClose`
+ * genérico (que dispara também por toque fora do modal e pelo botão voltar do
+ * Android).
+ */
+export function forfeitStreak(date?: string) {
+  return request<void>("/daily-log/forfeit-streak", {
+    method: "POST",
+    body: JSON.stringify(date ? { date } : {}),
+  });
 }
 
 export function saveDailyLogDraft(

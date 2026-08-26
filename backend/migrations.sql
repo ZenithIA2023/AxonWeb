@@ -593,3 +593,38 @@ comment on column public.daily_logs.is_day_off is
 
 comment on column public.daily_logs.peak_periods is
   'Até 3 slugs de período, ORDENADOS por produtividade percebida: posição 0 = mais produtivo. Arrays de tamanho 1-2 (registros anteriores à Migration 23) permanecem válidos.';
+
+-- =============================================
+-- Migration 24: dias em que o usuário abriu mão da ofensiva
+-- ---------------------------------------------
+-- A ofensiva do registro diário (foguinho) não admite buracos: um dia sem
+-- registro a encerra. O app dá uma folga real ao aceitar registro retroativo
+-- de ontem — quem passou o dia longe do app ainda salva a sequência no dia
+-- seguinte.
+--
+-- Quando a ofensiva está em risco e o usuário fecha o pop-up do registro, ele
+-- vê um aviso e pode confirmar que NÃO vai registrar. Esta tabela guarda essa
+-- desistência: o dia deixa de contar mesmo que ele mude de ideia e registre
+-- dentro do prazo.
+--
+-- Por que uma tabela e não uma coluna em daily_logs: o dia desistido é
+-- justamente aquele que NÃO tem registro — não existe linha em daily_logs para
+-- receber a marca.
+--
+-- Por que no banco e não em localStorage: reinstalar o app ou trocar de
+-- aparelho apagaria a marcação, e ela não valeria entre web e mobile.
+--
+-- A PK composta (user_id, date) torna a operação idempotente: confirmar duas
+-- vezes o mesmo dia não cria linha duplicada.
+-- =============================================
+
+create table if not exists public.streak_forfeits (
+  user_id    uuid not null references auth.users(id) on delete cascade,
+  date       date not null,
+  created_at timestamptz not null default now(),
+  primary key (user_id, date)
+);
+
+-- Leitura sempre por usuário + janela de datas (cálculo da ofensiva).
+create index if not exists streak_forfeits_user_date_idx
+  on public.streak_forfeits(user_id, date desc);

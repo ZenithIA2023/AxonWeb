@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Header, HTTPException
 from auth_helper import get_current_user
 from database import supabase
-from services import chronotype as chronotype_service, calibration_service, routines_service
+from services import chronotype as chronotype_service, calibration_service, routines_service, streak_service
 from services import user_tz as user_tz_service
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
@@ -105,6 +105,11 @@ def get_dashboard(
         "next_block": _get_block(curve_key, hour, offset=1, tasks=todays_tasks),
         "day_blocks": _today_blocks(curve_key, todays_tasks),
         "routine_consistency": routines_service.weekly_consistency(user_id, now.date()),
+        # Ofensiva do registro diário (foguinho). Calculada a partir dos
+        # daily_logs, não armazenada — ver services/streak_service. Vai junto do
+        # dashboard em vez de um endpoint próprio: é 1 query, e uma chamada
+        # separada custaria outro round-trip na abertura do app.
+        "streak": streak_service.get_streak(user_id, now.date()),
     }
 
 

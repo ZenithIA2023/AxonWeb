@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from auth_helper import get_current_user
 from database import supabase
 from models.schemas import DailyLogCreate, DailyLogDraft, DailyLogResponse
-from services import memory_service, user_tz, calibration_service, daily_rest
+from services import memory_service, user_tz, calibration_service, daily_rest, streak_service
 
 router = APIRouter(prefix="/daily-log", tags=["daily-log"])
 
@@ -321,3 +321,36 @@ def delete_draft(
         .execute()
     )
     return None
+
+
+@router.post("/forfeit-streak", status_code=204)
+def forfeit_streak(
+    body: dict | None = None,
+    x_timezone: str | None = Header(default=None),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    O usuário confirmou que não vai registrar o dia pendente e aceita perder a
+    ofensiva. O dia deixa de contar mesmo que ele registre depois.
+
+    Só aceita hoje ou ontem — as mesmas datas que o registro aceita. Sem essa
+    checagem, a API permitiria "desistir" de um dia qualquer do passado ou do
+    futuro, o que não corresponde a nenhuma ação possível na tela.
+    """
+    user_id = current_user["id"]
+    tz_name = user_tz.resolve(user_id, x_timezone)
+    hoje = datetime.now(user_tz.zone(tz_name)).date()
+
+    alvo = hoje
+    if body and body.get("date"):
+        try:
+            alvo = date.fromisoformat(str(body["date"]))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="date deve ser YYYY-MM-DD")
+
+    if alvo not in (hoje, hoje - timedelta(days=1)):
+        raise HTTPException(
+            status_code=400, detail="só é possível abrir mão de hoje ou de ontem"
+        )
+
+    streak_service.forfeit_day(user_id, alvo)
