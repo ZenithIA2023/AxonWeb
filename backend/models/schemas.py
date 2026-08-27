@@ -611,3 +611,10 @@ class TtsRequest(BaseModel):
     text: str
     voice_id: Optional[str] = None
     speed: float = 1.0
+
+
+class TranscribeResponse(BaseModel):
+    """Resultado de `POST /voice/transcribe`."""
+    text: str
+    confidence: float
+    duration_seconds: float

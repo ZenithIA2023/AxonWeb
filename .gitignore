@@ -16,3 +16,11 @@ keystore.properties
 /*.json
 !/package.json
 !/package-lock.json
+
+# Mesma lógica para áudio solto na raiz: amostras de voz gravadas para testar
+# a Fase 2 (transcrição) — dados pessoais, não fazem parte do projeto.
+/*.ogg
+/*.webm
+/*.m4a
+/*.mp3
+/*.wav

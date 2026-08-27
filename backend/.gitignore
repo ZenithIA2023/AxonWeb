@@ -4,3 +4,5 @@ __pycache__/
 *.pyo
 .venv/
 venv/
+/workspaces/axon/axon-app-c542c-firebase-adminsdk-fbsvc-9d9efca3e5.json
+*.ogg
