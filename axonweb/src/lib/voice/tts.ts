@@ -10,6 +10,7 @@
  * que `getEngine()` devolve. Nada mais no app sabe qual voz está tocando.
  */
 
+import { createCloudEngine } from "./cloudEngine";
 import { createNativeEngine } from "./nativeEngine";
 
 export type SpeechState = "idle" | "loading" | "speaking";
@@ -28,22 +29,39 @@ export interface SpeechEngine {
    * nasce de uma interação, e o gesto "expira" se demorarmos demais.
    */
   warmup(): Promise<void>;
+  /**
+   * Adianta o trabalho de uma frase que ainda vai ser falada. Só o motor de
+   * nuvem implementa (baixar o áudio leva ~1s; sem adiantar, haveria silêncio
+   * entre as frases). O motor nativo não precisa e omite.
+   */
+  prefetch?(text: string): void;
 }
+
+/** Qual motor de voz usar. */
+export type EngineId = "native" | "cloud";
 
 /** Preferências que o usuário controla na tela de Configurações. */
 export interface VoicePrefs {
-  /** URI da voz escolhida (`SpeechSynthesisVoice.voiceURI`). */
+  /**
+   * A voz escolhida. Para o motor de nuvem é o id do catálogo do backend
+   * ("google:pt-BR-Chirp3-HD-Aoede"); para o nativo é o `voiceURI` do aparelho.
+   */
   voiceURI?: string;
   rate: number;
   pitch: number;
+  /**
+   * Nuvem por padrão: a voz nativa foi testada e reprovada por soar
+   * artificial. O nativo continua disponível como alternativa offline.
+   */
+  engine: EngineId;
 }
 
 const PREFS_KEY = "axon_voice_prefs";
 
 export const DEFAULT_PREFS: VoicePrefs = {
-  // A voz PT-BR nativa soa um pouco arrastada no ritmo padrão.
-  rate: 1.05,
+  rate: 1.0,
   pitch: 1.0,
+  engine: "cloud",
 };
 
 export function loadVoicePrefs(): VoicePrefs {
@@ -66,16 +84,21 @@ export function saveVoicePrefs(prefs: VoicePrefs): void {
 }
 
 let cached: SpeechEngine | null = null;
+let cachedId: EngineId | null = null;
 
 /**
- * O motor de voz em uso. Hoje sempre o nativo; quando houver voz neural, é aqui
- * que a preferência do usuário passa a escolher entre os dois — e este é o
- * ÚNICO lugar que precisa mudar.
+ * O motor de voz em uso, conforme a preferência do usuário. Este é o ÚNICO
+ * lugar do app que sabe qual motor está tocando.
  *
- * `nativeEngine` importa apenas TIPOS daqui, então o import direto não cria
- * ciclo em runtime.
+ * Os motores importam apenas TIPOS daqui, então o import direto não cria ciclo
+ * em runtime.
  */
 export function getEngine(): SpeechEngine {
-  if (!cached) cached = createNativeEngine();
+  const querido = loadVoicePrefs().engine;
+  if (!cached || cachedId !== querido) {
+    cached?.cancel();
+    cached = querido === "native" ? createNativeEngine() : createCloudEngine();
+    cachedId = querido;
+  }
   return cached;
 }

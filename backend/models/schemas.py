@@ -604,3 +604,10 @@ class DeviceTokenRegister(BaseModel):
     """Token FCM de um aparelho, enviado pelo app após obter permissão."""
     token: str
     platform: str = "android"
+
+
+class TtsRequest(BaseModel):
+    """Uma frase para o Axon falar. `voice_id` no formato 'provedor:voz'."""
+    text: str
+    voice_id: Optional[str] = None
+    speed: float = 1.0

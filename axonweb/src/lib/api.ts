@@ -1515,3 +1515,59 @@ export function updateObjective(
 export function deleteObjective(id: string) {
   return request<void>(`/objectives/${id}`, { method: "DELETE" });
 }
+
+/* ============================================================================
+ * VOZ
+ * Síntese de fala do Axon. A voz nativa do aparelho foi reprovada por soar
+ * artificial, então o áudio vem do backend, que fala com Google/ElevenLabs/OpenAI.
+ * ========================================================================== */
+
+export interface VoiceOption {
+  id: string;
+  provider: "google" | "elevenlabs" | "openai";
+  name: string;
+  gender: string;
+  note?: string;
+}
+
+export interface VoiceCatalog {
+  voices: VoiceOption[];
+  default: string;
+  configured: boolean;
+}
+
+/** Vozes que o servidor consegue usar agora (só provedores com credencial). */
+export function getVoices() {
+  return request<VoiceCatalog>("/voice/voices");
+}
+
+/**
+ * Sintetiza uma frase e devolve o MP3 como Blob.
+ *
+ * Não passa pelo `request` porque a resposta é binária, não JSON — mas repete o
+ * essencial dele: token e tratamento de erro. Um 401 aqui é raro (a fala vem
+ * logo depois de uma chamada de chat que já teria renovado a sessão).
+ */
+export async function synthesizeSpeech(
+  text: string,
+  voiceId: string | null,
+  speed: number,
+  signal?: AbortSignal,
+): Promise<Blob> {
+  const res = await fetch(`${BASE_URL}/voice/tts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ text, voice_id: voiceId, speed }),
+    signal,
+  });
+
+  if (!res.ok) {
+    const detalhe = await res
+      .json()
+      .then((j) => (j as { detail?: string }).detail)
+      .catch(() => null);
+    throw new Error(detalhe ?? `Falha ao gerar a voz (${res.status})`);
+  }
+
+  return res.blob();
+}

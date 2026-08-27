@@ -552,7 +552,7 @@ export function ChatConversationPanel({
                 aria-pressed={speech.enabled}
                 title={
                   speech.enabled && !speech.available
-                    ? "Nenhuma voz em português encontrada neste aparelho"
+                    ? "Nenhuma voz disponível — veja Configurações › Voz do Axon"
                     : undefined
                 }
               >
