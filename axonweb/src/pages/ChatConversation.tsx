@@ -15,6 +15,8 @@ import {
   Send,
   Sparkles,
   Trash2,
+  Volume2,
+  VolumeX,
   X,
   Eraser,
   Bell,
@@ -24,6 +26,7 @@ import {
 } from "lucide-react";
 
 import { results, type ChronotypeResultKey } from "../data/results";
+import { useSpeech } from "../lib/voice/useSpeech";
 import Sidebar from "../components/layout/Sidebar";
 import * as api from "../lib/api";
 import AppBackground from "../components/layout/AppBackground";
@@ -185,6 +188,10 @@ export function ChatConversationPanel({
   // Aplica o efeito de digitação apenas na resposta recém-gerada pelo Axon.
   const [streamingMessageId, setStreamingMessageId] = useState<number | null>(null);
 
+  // Leitura em voz alta da resposta (a fala começa na 1ª frase, sem esperar o
+  // fim do streaming). Desligada por padrão — o usuário liga no botão do header.
+  const speech = useSpeech();
+
   // Histórico compacto enviado ao backend e marcador usado para rolar até o fim.
   const historyRef = useRef<api.ChatMessage[]>([]);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
@@ -312,6 +319,8 @@ export function ChatConversationPanel({
     setStreamingMessageId(axonId);
     setMessages((prev) => [...prev, { id: axonId, sender: "axon", text: "" }]);
 
+    speech.begin();
+
     api.streamChat(
       text,
       history,
@@ -319,9 +328,11 @@ export function ChatConversationPanel({
         setMessages((prev) =>
           prev.map((m) => (m.id === axonId ? { ...m, text: m.text + chunk } : m))
         );
+        speech.push(chunk);
       },
       () => {
         setIsSending(false);
+        speech.finish();
         setMessages((prev) => {
           const axonMsg = prev.find((m) => m.id === axonId);
           if (axonMsg) {
@@ -340,6 +351,7 @@ export function ChatConversationPanel({
       },
       () => {
         setIsSending(false);
+        speech.stop();
         setMessages((prev) =>
           prev.map((m) =>
             m.id === axonId
@@ -520,6 +532,37 @@ export function ChatConversationPanel({
             </div>
 
             <div className="flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const ligando = !speech.enabled;
+                  speech.setEnabled(ligando);
+                  // Destravar o áudio precisa acontecer DENTRO do clique: o
+                  // navegador só libera som que nasce de um gesto do usuário.
+                  if (ligando) speech.warmup();
+                }}
+                className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border shadow-card backdrop-blur-2xl transition active:scale-[0.96] ${
+                  speech.enabled
+                    ? "border-accent-soft bg-accent-soft text-accent"
+                    : "border-soft bg-surface-muted text-secondary"
+                }`}
+                aria-label={
+                  speech.enabled ? "Desativar leitura em voz alta" : "Ler respostas em voz alta"
+                }
+                aria-pressed={speech.enabled}
+                title={
+                  speech.enabled && !speech.available
+                    ? "Nenhuma voz em português encontrada neste aparelho"
+                    : undefined
+                }
+              >
+                {speech.enabled ? (
+                  <Volume2 className={`h-5 w-5 ${speech.speaking ? "animate-pulse" : ""}`} />
+                ) : (
+                  <VolumeX className="h-5 w-5" />
+                )}
+              </button>
+
               <button
                 type="button"
                 onClick={() => setIsOptionsOpen(true)}

@@ -11,63 +11,27 @@ nem atrasar quem a criou — por isso o envio roda em thread separada e todas as
 exceções morrem aqui dentro.
 """
 
-import json
-import os
 import threading
-import time
 
 import httpx
 
 from database import supabase
-
-_FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging"
-_TOKEN_URI = "https://oauth2.googleapis.com/token"
+from services import gcp_auth
 
 # Curto de propósito: isto roda a partir de um scheduler que dispara a cada
 # minuto. O padrão do httpx (5s) já seria demais num laço por usuário.
 _TIMEOUT = 4.0
 
-# O access token do FCM vale 1h; renovamos um pouco antes para não correr risco
-# de usar um token que expira no meio do voo.
-_TOKEN_TTL_MARGIN = 300
-
-_token_cache: dict = {"value": None, "exp": 0.0}
-_token_lock = threading.Lock()
-
 
 # ---------------------------------------------------------------------------
 # Credenciais
 # ---------------------------------------------------------------------------
+# A leitura da credencial e a troca por access token vivem em `gcp_auth`: a
+# chave do Firebase é uma service account do projeto GCP, então o Speech-to-Text
+# usa exatamente a mesma, mudando só o escopo.
 
 def _service_account() -> dict | None:
-    """
-    Credencial da conta de serviço do Firebase. Aceita duas formas:
-
-    - FIREBASE_CREDENTIALS_PATH: caminho de um arquivo JSON no disco
-    - FIREBASE_CREDENTIALS_JSON: o próprio JSON em uma variável (útil no Railway,
-      onde não há arquivo para subir)
-
-    Devolve None quando nada está configurado — é o estado normal antes de o
-    Firebase existir, e o resto do módulo trata isso como "push desligado".
-    """
-    raw = os.getenv("FIREBASE_CREDENTIALS_JSON")
-    if raw:
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError:
-            print("[push] FIREBASE_CREDENTIALS_JSON não é um JSON válido", flush=True)
-            return None
-
-    path = os.getenv("FIREBASE_CREDENTIALS_PATH")
-    if path and os.path.exists(path):
-        try:
-            with open(path, "r", encoding="utf-8") as fh:
-                return json.load(fh)
-        except (OSError, json.JSONDecodeError) as e:
-            print(f"[push] falha ao ler {path}: {e}", flush=True)
-            return None
-
-    return None
+    return gcp_auth.service_account()
 
 
 def is_configured() -> bool:
@@ -80,49 +44,7 @@ def _project_id(cred: dict) -> str | None:
 
 
 def _access_token(cred: dict) -> str | None:
-    """
-    Troca a chave da conta de serviço por um access token OAuth2, com cache.
-
-    Usa JWT assinado com a chave privada (fluxo padrão de service account). O
-    `python-jose` já é dependência do projeto, então não entra biblioteca nova.
-    """
-    now = time.time()
-    with _token_lock:
-        if _token_cache["value"] and now < _token_cache["exp"]:
-            return _token_cache["value"]
-
-    try:
-        from jose import jwt
-
-        iat = int(now)
-        exp = iat + 3600
-        claim = {
-            "iss": cred["client_email"],
-            "scope": _FCM_SCOPE,
-            "aud": _TOKEN_URI,
-            "iat": iat,
-            "exp": exp,
-        }
-        assertion = jwt.encode(claim, cred["private_key"], algorithm="RS256")
-
-        with httpx.Client(timeout=_TIMEOUT) as client:
-            resp = client.post(
-                _TOKEN_URI,
-                data={
-                    "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
-                    "assertion": assertion,
-                },
-            )
-        resp.raise_for_status()
-        token = resp.json()["access_token"]
-
-        with _token_lock:
-            _token_cache["value"] = token
-            _token_cache["exp"] = now + 3600 - _TOKEN_TTL_MARGIN
-        return token
-    except Exception as e:
-        print(f"[push] falha ao obter access token do FCM: {e}", flush=True)
-        return None
+    return gcp_auth.access_token(cred, gcp_auth.SCOPE_FCM)
 
 
 # ---------------------------------------------------------------------------
