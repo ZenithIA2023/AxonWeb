@@ -684,12 +684,12 @@ export default function Dashboard() {
               <button
                 type="button"
                 className={`flex h-10 min-w-10 items-center justify-center gap-1.5 rounded-2xl border px-2.5 backdrop-blur-2xl transition active:scale-[0.96] ${
-                  data?.streak.frozen
+                  data?.streak?.frozen
                     ? "border-[var(--accent)] bg-accent-soft text-accent"
                     : "border-soft bg-surface-muted text-secondary"
                 }`}
                 aria-label={
-                  data
+                  data?.streak
                     ? `Ofensiva de ${data.streak.current} ${
                         data.streak.current === 1 ? "dia" : "dias"
                       }.${
@@ -702,7 +702,7 @@ export default function Dashboard() {
                     : "Ver ofensiva"
                 }
                 title={
-                  data?.streak.frozen
+                  data?.streak?.frozen
                     ? "Ofensiva congelada — registre hoje para mantê-la"
                     : undefined
                 }
@@ -710,10 +710,10 @@ export default function Dashboard() {
                 <Flame className="h-4 w-4 text-accent" />
                 <span
                   className={`text-[0.65rem] font-black ${
-                    data?.streak.frozen ? "text-accent" : "text-muted"
+                    data?.streak?.frozen ? "text-accent" : "text-muted"
                   }`}
                 >
-                  {data?.streak.current ?? 0}
+                  {data?.streak?.current ?? 0}
                 </span>
               </button>
 
@@ -1107,7 +1107,7 @@ export default function Dashboard() {
           // Fechar sem registrar com a ofensiva por um fio: pergunta antes de
           // deixar passar. O aviso NÃO marca nada sozinho — só o botão de
           // confirmação dentro dele desiste do dia.
-          if (data?.streak.frozen) setStreakWarnOpen(true);
+          if (data?.streak?.frozen) setStreakWarnOpen(true);
         }}
         existing={autoReviewDate ? yesterdayLog : todayLog}
         targetDate={autoReviewDate}
@@ -1124,7 +1124,7 @@ export default function Dashboard() {
           este aviso (X, toque fora, botão voltar) NÃO pune: apenas o botão
           "Perder a ofensiva" chama a API, porque um toque acidental não pode
           custar uma sequência de forma irreversível. */}
-      {streakWarnOpen && data && (
+      {streakWarnOpen && data?.streak && (
         <div
           className="fixed inset-0 z-[130] flex items-end justify-center bg-black/50 p-4 backdrop-blur-sm sm:items-center"
           role="dialog"

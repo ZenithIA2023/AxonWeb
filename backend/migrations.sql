@@ -628,3 +628,30 @@ create table if not exists public.streak_forfeits (
 -- Leitura sempre por usuário + janela de datas (cálculo da ofensiva).
 create index if not exists streak_forfeits_user_date_idx
   on public.streak_forfeits(user_id, date desc);
+
+-- =============================================
+-- Migration 25: voice_stt_usage — teto mensal de transcrição
+-- ---------------------------------------------
+-- Fase 2 do plano de voz. Transcrição é cobrada por segundo de áudio no
+-- Google Speech-to-Text, e sem um teto o custo só aparece na fatura no fim do
+-- mês. Esta tabela guarda, por usuário e mês civil, quantos segundos já
+-- foram transcritos; `stt_service.check_quota` lê daqui antes de aceitar um
+-- novo áudio.
+--
+-- `year_month` é texto ('2026-08') em vez de uma data: o contador é por MÊS
+-- inteiro, não por dia, e um texto evita a ambiguidade de qual dia do mês
+-- representaria a linha. A PK composta torna o incremento idempotente e evita
+-- duas linhas para o mesmo usuário/mês.
+--
+-- Sem RLS, no mesmo padrão de `device_tokens`/`streak_forfeits`: só o backend
+-- (service_role) lê e escreve aqui — não há tela que consulte isto direto do
+-- Supabase.
+-- =============================================
+
+create table if not exists public.voice_stt_usage (
+  user_id      uuid not null references auth.users(id) on delete cascade,
+  year_month   text not null,
+  seconds_used integer not null default 0,
+  updated_at   timestamptz not null default now(),
+  primary key (user_id, year_month)
+);

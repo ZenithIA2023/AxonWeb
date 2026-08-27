@@ -1,18 +1,17 @@
 """
 Rotas de voz do Axon.
 
-Por ora só a síntese (texto → áudio): a voz nativa do aparelho foi reprovada por
-soar artificial, então a fala passa a ser gerada no servidor. A transcrição
-(áudio → texto) e o `POST /voice/message` entram aqui na sequência.
+Síntese (texto → áudio) e transcrição (áudio → texto). O `POST /voice/message`
+— que junta as duas pontas com o agente, na Fase 3 — entra aqui na sequência.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 
 from auth_helper import get_current_user
 from limiter import chat_limiter
-from models.schemas import TtsRequest
-from services import tts_service
+from models.schemas import TranscribeResponse, TtsRequest
+from services import stt_service, tts_service
 
 router = APIRouter(prefix="/voice", tags=["voice"])
 
@@ -61,3 +60,42 @@ def synthesize(
             "X-Tts-Cache": "hit" if do_cache else "miss",
         },
     )
+
+
+@router.post("/transcribe", response_model=TranscribeResponse)
+@chat_limiter.limit("30/minute")
+async def transcribe(
+    request: Request,
+    audio: UploadFile = File(...),
+    language: str = Form("pt-BR"),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Transcreve uma gravação do usuário.
+
+    O limite (30/min) é bem mais apertado que o do TTS: lá cada chamada é uma
+    frase da resposta do Axon, aqui é uma gravação inteira do usuário.
+    """
+    if not audio.content_type or not audio.content_type.startswith("audio/"):
+        raise HTTPException(status_code=422, detail="Envie um arquivo de áudio.")
+
+    user_id = current_user["id"]
+
+    try:
+        stt_service.check_quota(user_id)
+    except stt_service.SttQuotaExceeded as e:
+        raise HTTPException(status_code=429, detail=str(e))
+
+    conteudo = await audio.read()
+
+    try:
+        resultado = stt_service.transcribe(conteudo, audio.content_type, language)
+    except stt_service.SttError as e:
+        # 502: quem falhou foi o provedor, não o pedido do usuário.
+        raise HTTPException(status_code=502, detail=str(e))
+
+    # Registrado mesmo se o resultado vier vazio (silêncio, ruído): o Google já
+    # cobrou pelo tempo de áudio processado, quer tenha reconhecido fala ou não.
+    stt_service.record_usage(user_id, resultado["duration_seconds"])
+
+    return resultado
