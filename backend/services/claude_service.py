@@ -75,7 +75,15 @@ def _sse(payload: dict) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
-def stream_chat_with_tools(messages: list[dict], system_prompt: str, user_id: str, tz_name: str | None = None, conversation_type: str = "regular"):
+def stream_chat_with_tools(
+    messages: list[dict],
+    system_prompt: str,
+    user_id: str,
+    tz_name: str | None = None,
+    conversation_type: str = "regular",
+    *,
+    thinking: bool = True,
+):
     """
     Streaming SSE com o loop de tool use do Anthropic.
 
@@ -83,6 +91,11 @@ def stream_chat_with_tools(messages: list[dict], system_prompt: str, user_id: st
     (stop_reason == "tool_use"), executa cada uma via agent_tools.execute_tool
     (respeitando o user_id), devolve os tool_results e continua o loop até o
     modelo dar uma resposta final em texto.
+
+    `thinking=False` desliga o raciocínio adaptativo — mesmo parâmetro que
+    `call_chat` já expõe. Existe para a conversa por voz: o raciocínio melhora as
+    decisões de ferramenta, mas atrasa o primeiro token, e numa conversa falada
+    esse atraso é sentido como travamento. Ver VOICE_THINKING em routers/voice.py.
 
     Eventos SSE emitidos:
       - {"text": "..."}                              delta de texto
@@ -93,15 +106,16 @@ def stream_chat_with_tools(messages: list[dict], system_prompt: str, user_id: st
     client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
     convo = list(messages)
     tools = agent_tools.tools_for_conversation(conversation_type)
+    thinking_kwargs = {"thinking": {"type": "adaptive"}} if thinking else {}
 
     for _ in range(_MAX_TOOL_ROUNDS):
         with client.messages.stream(
             model=_MODEL,
             max_tokens=8192,
             system=system_prompt,
-            thinking={"type": "adaptive"},
             tools=tools,
             messages=convo,
+            **thinking_kwargs,
         ) as stream:
             for text in stream.text_stream:
                 yield _sse({"text": text})

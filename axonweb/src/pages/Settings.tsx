@@ -16,6 +16,7 @@ import {
   Shield,
   Sparkles as SparklesIcon,
   Trash2,
+  Volume2,
   X,
 } from "lucide-react";
 
@@ -27,6 +28,7 @@ import { AppBackground } from "../components/layout/AppBackground";
 import PageHeader from "../components/layout/PageHeader";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
 import { ThemeToggle } from "../components/theme/ThemeToggle";
+import VoiceLab from "../components/settings/VoiceLab";
 
 // ===========================================================================
 // TIPOS DA TELA
@@ -71,6 +73,7 @@ export default function Settings() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [notifSettingsOpen, setNotifSettingsOpen] = useState(false);
   const [appearanceModalOpen, setAppearanceModalOpen] = useState(false);
+  const [voiceModalOpen, setVoiceModalOpen] = useState(false);
   const [accountModalOpen, setAccountModalOpen] = useState(false);
 
   const [userName, setUserName] = useState("");
@@ -195,6 +198,13 @@ export default function Settings() {
                 value="Configurar"
                 onClick={() => setAppearanceModalOpen(true)}
               />
+              <SettingRow
+                icon={Volume2}
+                title="Voz do Axon"
+                description="Escolha a voz que lê as respostas em voz alta."
+                value="Configurar"
+                onClick={() => setVoiceModalOpen(true)}
+              />
             </SettingsSection>
 
             <SettingsSection title="Notificações">
@@ -297,6 +307,16 @@ export default function Settings() {
           </div>
         </div>
       </div>
+
+      <SettingsModal
+        isOpen={voiceModalOpen}
+        title="Voz do Axon"
+        description="Ouça as vozes deste aparelho e escolha a que o Axon vai usar."
+        icon={Volume2}
+        onClose={() => setVoiceModalOpen(false)}
+      >
+        <VoiceLab />
+      </SettingsModal>
 
       <AppearanceModal
         isOpen={appearanceModalOpen}
