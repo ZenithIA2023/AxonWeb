@@ -11,6 +11,7 @@
  *     cd axonweb && npx tsx src/lib/voice/voice.test.ts
  */
 
+import { Omega } from "lucide-react";
 import { sanitizeForSpeech } from "./sanitize";
 import { createSentenceQueue } from "./sentenceQueue";
 import type { SpeechEngine } from "./tts";

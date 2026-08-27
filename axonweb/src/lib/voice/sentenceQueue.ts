@@ -122,6 +122,9 @@ export function createSentenceQueue(
     while (pendentes.length > 0 && !cancelado) {
       const frase = pendentes.shift()!;
       options.onSentenceStart?.(frase);
+      // Adianta a próxima ANTES de falar esta: com voz de nuvem, buscar o áudio
+      // leva ~1s, e sem sobrepor haveria um silêncio entre cada frase.
+      if (pendentes.length > 0) engine.prefetch?.(pendentes[0]);
       await engine.speak(frase);
     }
     falando = false;
