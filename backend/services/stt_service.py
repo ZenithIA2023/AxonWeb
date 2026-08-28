@@ -194,6 +194,25 @@ def check_quota(user_id: str) -> None:
         raise SttQuotaExceeded(f"limite mensal de {limite}s de transcrição atingido")
 
 
+def transcribe_billed(
+    user_id: str,
+    audio: bytes,
+    mime: str,
+    language: str = "pt-BR",
+    hints: list[str] | None = None,
+) -> dict:
+    """
+    `check_quota` + `transcribe` + `record_usage` em sequência — usados juntos
+    tanto por `/voice/transcribe` quanto por `/voice/message`, sempre nesta
+    ordem (checa ANTES de gastar a chamada ao Google, cobra DEPOIS de saber a
+    duração real).
+    """
+    check_quota(user_id)
+    resultado = transcribe(audio, mime, language, hints)
+    record_usage(user_id, resultado["duration_seconds"])
+    return resultado
+
+
 def record_usage(user_id: str, seconds: float) -> None:
     """Soma `seconds` ao contador do mês corrente. Idempotente pela PK composta."""
     if seconds <= 0:

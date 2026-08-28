@@ -906,30 +906,57 @@ export interface ToolEvent {
   summary?: string;
 }
 
-// Usado na conversa interna para mostrar resposta em tempo real e eventos de ferramentas.
-export function streamChat(
-  message: string,
-  history: ChatMessage[],
-  onChunk: (text: string) => void,
+/**
+ * Base compartilhada de todo streaming SSE do Axon (chat digitado e por voz):
+ * conecta, lê linha por linha e entrega cada evento já decodificado.
+ *
+ * Corrige uma dívida que só `streamChat` carregava sozinho: nem mandava
+ * `X-Timezone` (o backend usava o fuso salvo, não o do aparelho na hora) nem
+ * tentava renovar a sessão em 401 (só o helper `request()` fazia isso) — quem
+ * estivesse "mantido conectado" com o access token vencido caía do chat sem
+ * motivo aparente, mesmo com refresh token válido.
+ */
+function streamSSE(
+  path: string,
+  init: RequestInit,
+  onEvent: (parsed: Record<string, unknown>) => void,
   onDone: () => void,
   onError: (err: Error) => void,
-  conversationId?: string,
-  onTool?: (event: ToolEvent) => void
+  isRetry = false
 ): void {
   const token = getToken();
 
-  fetch(`${BASE_URL}/chat/message`, {
-    method: "POST",
+  fetch(`${BASE_URL}${path}`, {
+    ...init,
     headers: {
-      "Content-Type": "application/json",
+      "X-Timezone": Intl.DateTimeFormat().resolvedOptions().timeZone,
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...init.headers,
     },
-    body: JSON.stringify({ message, history, conversation_id: conversationId ?? null }),
   })
     .then(async (res) => {
       if (!res.ok) {
-        const error = await res.json().catch(() => ({ detail: "Erro no chat" }));
-        throw new Error(error.detail ?? "Erro no chat");
+        if (res.status === 401) {
+          const refreshToken = getRefreshToken();
+
+          if (!isRetry && refreshToken) {
+            try {
+              const renewed = await refreshSession(refreshToken);
+              saveSession(renewed, isRemembered());
+              streamSSE(path, init, onEvent, onDone, onError, true);
+              return;
+            } catch {
+              // Refresh também expirado/revogado: cai no logout abaixo.
+            }
+          }
+
+          clearSessionItems();
+          window.location.href = isNative() ? "#/login" : "/login";
+          throw new Error("Sessão expirada");
+        }
+
+        const error = await res.json().catch(() => ({ detail: "Erro na requisição" }));
+        throw new Error(error.detail ?? "Erro na requisição");
       }
 
       const reader = res.body!.getReader();
@@ -957,13 +984,7 @@ export function streamChat(
           }
 
           try {
-            const parsed = JSON.parse(payload);
-
-            if (parsed.text) {
-              onChunk(parsed.text);
-            } else if (parsed.tool) {
-              onTool?.(parsed as ToolEvent);
-            }
+            onEvent(JSON.parse(payload));
           } catch {
             // Linhas SSE incompletas/malformadas são ignoradas até o próximo chunk.
           }
@@ -975,6 +996,76 @@ export function streamChat(
       pump();
     })
     .catch(onError);
+}
+
+// Usado na conversa interna para mostrar resposta em tempo real e eventos de ferramentas.
+export function streamChat(
+  message: string,
+  history: ChatMessage[],
+  onChunk: (text: string) => void,
+  onDone: () => void,
+  onError: (err: Error) => void,
+  conversationId?: string,
+  onTool?: (event: ToolEvent) => void
+): void {
+  streamSSE(
+    "/chat/message",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message, history, conversation_id: conversationId ?? null }),
+    },
+    (parsed) => {
+      if (typeof parsed.text === "string") {
+        onChunk(parsed.text);
+      } else if (typeof parsed.tool === "string") {
+        onTool?.(parsed as unknown as ToolEvent);
+      }
+    },
+    onDone,
+    onError
+  );
+}
+
+/**
+ * Envia uma gravação inteira do usuário para `/voice/message`: o backend
+ * transcreve, manda para o mesmo agente do chat de texto (com as tools de
+ * exclusão fora por padrão) e devolve a resposta em streaming.
+ *
+ * `onTranscript` chega ANTES de qualquer `onChunk` — é o texto que o Google
+ * entendeu, para o usuário ver de imediato que foi ouvido direito.
+ */
+export function streamVoiceMessage(
+  audio: Blob,
+  filename: string,
+  history: ChatMessage[],
+  conversationId: string,
+  onTranscript: (text: string) => void,
+  onChunk: (text: string) => void,
+  onDone: () => void,
+  onError: (err: Error) => void,
+  onTool?: (event: ToolEvent) => void
+): void {
+  const form = new FormData();
+  form.append("audio", audio, filename);
+  form.append("conversation_id", conversationId);
+  form.append("history", JSON.stringify(history));
+
+  streamSSE(
+    "/voice/message",
+    { method: "POST", body: form },
+    (parsed) => {
+      if (typeof parsed.transcript === "string") {
+        onTranscript(parsed.transcript);
+      } else if (typeof parsed.text === "string") {
+        onChunk(parsed.text);
+      } else if (typeof parsed.tool === "string") {
+        onTool?.(parsed as unknown as ToolEvent);
+      }
+    },
+    onDone,
+    onError
+  );
 }
 
 /* ============================================================================

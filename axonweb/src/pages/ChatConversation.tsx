@@ -27,6 +27,9 @@ import {
 
 import { results, type ChronotypeResultKey } from "../data/results";
 import { useSpeech } from "../lib/voice/useSpeech";
+import { useVoiceSession } from "../lib/voice/useVoiceSession";
+import type { VoiceRecording } from "../lib/voice/recorder";
+import { VoiceButton } from "../components/chat/VoiceButton";
 import Sidebar from "../components/layout/Sidebar";
 import * as api from "../lib/api";
 import AppBackground from "../components/layout/AppBackground";
@@ -52,6 +55,24 @@ type Message = {
   text: string;
   tools?: ToolActivity[];
 };
+
+// Reduz um evento de tool (running/done) sobre o estado atual da bolha — usado
+// pelo chat digitado e pela voz, que recebem exatamente o mesmo formato de
+// evento SSE (`api.ToolEvent`).
+function nextToolsState(current: ToolActivity[] | undefined, event: api.ToolEvent): ToolActivity[] {
+  const tools = [...(current ?? [])];
+  if (event.status === "running") {
+    tools.push({ tool: event.tool, label: event.label ?? event.tool, status: "running" });
+    return tools;
+  }
+  for (let i = tools.length - 1; i >= 0; i--) {
+    if (tools[i].tool === event.tool && tools[i].status === "running") {
+      tools[i] = { ...tools[i], status: "done", ok: event.ok, summary: event.summary };
+      break;
+    }
+  }
+  return tools;
+}
 
 type NotificationItem = {
   id: number;
@@ -191,6 +212,16 @@ export function ChatConversationPanel({
   // Leitura em voz alta da resposta (a fala começa na 1ª frase, sem esperar o
   // fim do streaming). Desligada por padrão — o usuário liga no botão do header.
   const speech = useSpeech();
+
+  // Push-to-talk: grava, envia para /voice/message e entra no mesmo fluxo de
+  // streaming do chat digitado. Mensagem FALADA sempre é respondida falando
+  // (speech.begin(true)), independente do toggle de leitura em voz alta.
+  const voiceSession = useVoiceSession({
+    onRecordingReady: (recording) => handleVoiceRecordingReady(recording),
+    onError: (message) => {
+      setMessages((prev) => [...prev, { id: Date.now(), sender: "axon", text: message }]);
+    },
+  });
 
   // Histórico compacto enviado ao backend e marcador usado para rolar até o fim.
   const historyRef = useRef<api.ChatMessage[]>([]);
@@ -367,30 +398,105 @@ export function ChatConversationPanel({
       conversationId,
       (event) => {
         setMessages((prev) =>
-          prev.map((m) => {
-            if (m.id !== axonId) return m;
-            const tools = [...(m.tools ?? [])];
-            if (event.status === "running") {
-              tools.push({
-                tool: event.tool,
-                label: event.label ?? event.tool,
-                status: "running",
-              });
-            } else {
-              for (let i = tools.length - 1; i >= 0; i--) {
-                if (tools[i].tool === event.tool && tools[i].status === "running") {
-                  tools[i] = {
-                    ...tools[i],
-                    status: "done",
-                    ok: event.ok,
-                    summary: event.summary,
-                  };
-                  break;
-                }
-              }
-            }
-            return { ...m, tools };
-          })
+          prev.map((m) => (m.id === axonId ? { ...m, tools: nextToolsState(m.tools, event) } : m))
+        );
+      }
+    );
+  }
+
+  // Envio por voz: a gravação já pronta (voiceSession.onRecordingReady) vira
+  // uma chamada a /voice/message. O transcript chega como primeiro evento do
+  // stream, então as duas bolhas (usuário + Axon) só nascem quando ele chegar
+  // — antes disso só o TypingIndicator (isSending) aparece.
+  function handleVoiceRecordingReady(recording: VoiceRecording) {
+    if (!conversationId) {
+      voiceSession.finishProcessing();
+      return;
+    }
+
+    const history = historyRef.current;
+    const axonId = Date.now() + 1;
+    let userMsgId: number | null = null;
+
+    setIsSending(true);
+    // Força a fala mesmo com o toggle de leitura desligado — quem falou quer
+    // ouvir de volta, mesmo que normalmente prefira ler.
+    speech.begin(true);
+
+    const ext = recording.mimeType.includes("mp4")
+      ? "m4a"
+      : recording.mimeType.includes("ogg")
+      ? "ogg"
+      : "webm";
+
+    api.streamVoiceMessage(
+      recording.blob,
+      `voz.${ext}`,
+      history,
+      conversationId,
+      (transcript) => {
+        userMsgId = Date.now();
+        setMessages((prev) => [
+          ...prev,
+          { id: userMsgId!, sender: "user", text: transcript },
+          { id: axonId, sender: "axon", text: "" },
+        ]);
+        setStreamingMessageId(axonId);
+      },
+      (chunk) => {
+        setMessages((prev) =>
+          prev.map((m) => (m.id === axonId ? { ...m, text: m.text + chunk } : m))
+        );
+        speech.push(chunk);
+      },
+      () => {
+        setIsSending(false);
+        speech.finish();
+        voiceSession.finishProcessing();
+        setMessages((prev) => {
+          const userMsg = prev.find((m) => m.id === userMsgId);
+          const axonMsg = prev.find((m) => m.id === axonId);
+          if (userMsg && axonMsg) {
+            historyRef.current = [
+              ...history,
+              { role: "user", content: userMsg.text },
+              { role: "assistant", content: axonMsg.text },
+            ];
+          }
+          return prev;
+        });
+
+        window.setTimeout(() => {
+          setStreamingMessageId(null);
+        }, 3500);
+      },
+      (err) => {
+        setIsSending(false);
+        speech.stop();
+        voiceSession.finishProcessing();
+        setMessages((prev) => {
+          // Erro antes até de transcrever (quota, provedor fora do ar, áudio
+          // vazio): não há bolhas ainda, então cria uma só do Axon com o erro.
+          if (userMsgId === null) {
+            return [
+              ...prev,
+              { id: axonId, sender: "axon", text: err.message || "Não consegui processar o áudio. Tente novamente." },
+            ];
+          }
+          return prev.map((m) =>
+            m.id === axonId
+              ? { ...m, text: m.text || "Erro ao obter resposta. Tente novamente." }
+              : m
+          );
+        });
+
+        window.setTimeout(() => {
+          setStreamingMessageId(null);
+        }, 1200);
+      },
+      (event) => {
+        setMessages((prev) =>
+          prev.map((m) => (m.id === axonId ? { ...m, tools: nextToolsState(m.tools, event) } : m))
         );
       }
     );
@@ -650,14 +756,22 @@ export function ChatConversationPanel({
               className="max-h-28 min-h-[42px] flex-1 resize-none overflow-y-auto bg-transparent px-3 py-2 text-sm leading-6 text-primary outline-none placeholder:text-soft"
             />
 
-            <button
-              type="submit"
-              disabled={!message.trim()}
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[var(--accent-strong)] text-white shadow-card transition active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-45"
-              aria-label="Enviar mensagem"
-            >
-              <Send className="h-4.5 w-4.5" />
-            </button>
+            {!message.trim() && voiceSession.available ? (
+              <VoiceButton
+                session={voiceSession}
+                disabled={isSending}
+                onWarmup={() => speech.warmup()}
+              />
+            ) : (
+              <button
+                type="submit"
+                disabled={!message.trim()}
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[var(--accent-strong)] text-white shadow-card transition active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-45"
+                aria-label="Enviar mensagem"
+              >
+                <Send className="h-4.5 w-4.5" />
+              </button>
+            )}
           </form>
         </footer>
       </div>

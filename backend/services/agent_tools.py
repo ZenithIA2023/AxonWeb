@@ -8,6 +8,7 @@ usuário logado.
 Datas devem ser passadas pelo modelo no formato YYYY-MM-DD e horários como HH:MM.
 """
 
+import os
 from datetime import date, datetime, timedelta
 
 from database import supabase
@@ -636,12 +637,27 @@ TOOLS = [
 # axon_direct — ver claude_service.stream_chat_with_tools.
 _AXON_DIRECT_ONLY_TOOLS = {"concluir_onboarding"}
 
+# Tools de exclusão, tiradas do modo voz por padrão: uma transcrição pode errar
+# "sim" por "sei" ou por ruído, e apagar algo por engano é bem pior do que criar
+# algo por engano. VOICE_ALLOW_DESTRUCTIVE=1 reabre, sem precisar de deploy.
+_DESTRUCTIVE_TOOLS = {"deletar_tarefa", "deletar_rotina", "deletar_objetivo", "deletar_subtarefa"}
 
-def tools_for_conversation(conversation_type: str) -> list[dict]:
-    """Filtra TOOLS conforme o tipo de conversa (ex.: concluir_onboarding só em axon_direct)."""
-    if conversation_type == "axon_direct":
-        return TOOLS
-    return [t for t in TOOLS if t["name"] not in _AXON_DIRECT_ONLY_TOOLS]
+
+def _voice_allows_destructive() -> bool:
+    return os.getenv("VOICE_ALLOW_DESTRUCTIVE", "0") == "1"
+
+
+def tools_for_conversation(conversation_type: str, voice: bool = False) -> list[dict]:
+    """
+    Filtra TOOLS conforme o tipo de conversa (ex.: concluir_onboarding só em
+    axon_direct) e, no modo voz, remove as tools de exclusão por padrão.
+    """
+    tools = TOOLS if conversation_type == "axon_direct" else [
+        t for t in TOOLS if t["name"] not in _AXON_DIRECT_ONLY_TOOLS
+    ]
+    if voice and not _voice_allows_destructive():
+        tools = [t for t in tools if t["name"] not in _DESTRUCTIVE_TOOLS]
+    return tools
 
 
 def execute_tool(name: str, tool_input: dict, user_id: str, tz_name: str | None = None) -> dict:

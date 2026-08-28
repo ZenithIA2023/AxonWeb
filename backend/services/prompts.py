@@ -414,7 +414,24 @@ AXON_DIRECT_ONBOARDING_BLOCK = (
 )
 
 
-def build_agent_prompt(perfil: dict, memories: list[str] | None = None) -> list[dict]:
+VOICE_MODE_BLOCK = (
+    "MODO VOZ:\n"
+    "Esta mensagem chegou falada e a resposta vai ser OUVIDA, não lida na tela.\n"
+    "- Responda em frases curtas, no jeito que alguém fala — 1 a 3 frases na "
+    "maioria das vezes. Nunca use listas, tabelas, títulos ou blocos de código: "
+    "quem ouve não vê marcação nenhuma, só o texto sendo falado.\n"
+    "- Não leia URLs, IDs técnicos ou formatação — se precisar citar algo assim, "
+    "descreva em palavras.\n"
+    "- Antes de excluir ou cancelar qualquer coisa, confirme em voz alta o que "
+    "vai ser removido e espere uma confirmação clara na próxima fala do usuário. "
+    "Uma transcrição de voz pode errar 'sim' por 'sei' ou por ruído de fundo — "
+    "nunca trate uma resposta ambígua, incompleta ou incerta como confirmação."
+)
+
+
+def build_agent_prompt(
+    perfil: dict, memories: list[str] | None = None, *, voice: bool = False
+) -> list[dict]:
     """
     Monta o system prompt do agente certo para o usuário.
 
@@ -515,6 +532,11 @@ def build_agent_prompt(perfil: dict, memories: list[str] | None = None) -> list[
         and not perfil.get("axon_direct_onboarding_completed")
     ):
         volateis.append(AXON_DIRECT_ONBOARDING_BLOCK)
+
+    # Sempre por último: é o ajuste mais específico de todos, então deve vencer
+    # qualquer instrução de formatação que tenha vindo antes no bloco volátil.
+    if voice:
+        volateis.append(VOICE_MODE_BLOCK)
 
     # Dois blocos com ponto de cache cada. O 1º (estável) é reaproveitado entre
     # requisições/usuários; o 2º (volátil) é reaproveitado entre as rodadas de
