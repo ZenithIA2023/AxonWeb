@@ -29,8 +29,12 @@ export interface UseSpeech {
   speaking: boolean;
   /** O aparelho tem voz utilizável (no Android pode faltar o pacote PT-BR). */
   available: boolean;
-  /** Começa a escutar uma nova resposta. Chamar ao enviar a mensagem. */
-  begin: () => void;
+  /**
+   * Começa a escutar uma nova resposta. Chamar ao enviar a mensagem.
+   * `force=true` fala mesmo com o toggle desligado — usado pela entrada por
+   * voz: mensagem FALADA sempre fala de volta, digitada respeita o toggle.
+   */
+  begin: (force?: boolean) => void;
   /** Cada delta de texto do stream. */
   push: (chunk: string) => void;
   /** Fim do stream. */
@@ -79,10 +83,10 @@ export function useSpeech(): UseSpeech {
     void engine.warmup().then(() => setAvailable(engine.isAvailable));
   }, []);
 
-  const begin = useCallback(() => {
+  const begin = useCallback((force = false) => {
     // Uma resposta nova cancela a anterior — senão duas falam por cima.
     queueRef.current?.cancel();
-    if (!enabledRef.current) {
+    if (!enabledRef.current && !force) {
       queueRef.current = null;
       return;
     }

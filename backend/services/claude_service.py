@@ -83,6 +83,7 @@ def stream_chat_with_tools(
     conversation_type: str = "regular",
     *,
     thinking: bool = True,
+    voice: bool = False,
 ):
     """
     Streaming SSE com o loop de tool use do Anthropic.
@@ -97,6 +98,10 @@ def stream_chat_with_tools(
     decisões de ferramenta, mas atrasa o primeiro token, e numa conversa falada
     esse atraso é sentido como travamento. Ver VOICE_THINKING em routers/voice.py.
 
+    `voice=True` tira as tools de exclusão da lista oferecida ao modelo (ver
+    agent_tools.tools_for_conversation) — não muda o raciocínio, só o que pode
+    ser chamado.
+
     Eventos SSE emitidos:
       - {"text": "..."}                              delta de texto
       - {"tool": name, "status": "running", "label", "input"}
@@ -105,7 +110,7 @@ def stream_chat_with_tools(
     """
     client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
     convo = list(messages)
-    tools = agent_tools.tools_for_conversation(conversation_type)
+    tools = agent_tools.tools_for_conversation(conversation_type, voice=voice)
     thinking_kwargs = {"thinking": {"type": "adaptive"}} if thinking else {}
 
     for _ in range(_MAX_TOOL_ROUNDS):

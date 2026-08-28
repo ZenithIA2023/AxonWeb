@@ -179,6 +179,7 @@ def stream_and_save(
     conversation_type: str = "regular",
     *,
     thinking: bool = True,
+    voice: bool = False,
 ):
     """
     Faz o streaming da resposta da Claude e salva as mensagens no banco.
@@ -187,12 +188,15 @@ def stream_and_save(
     responde melhor, mas atrasa o primeiro token em até alguns segundos — e numa
     conversa falada essa espera é a diferença entre parecer natural e parecer
     travado.
+
+    `voice=True` também vem da conversa por voz: tira as tools de exclusão da
+    lista oferecida ao modelo (ver agent_tools.tools_for_conversation).
     """
     response_text = ""
     try:
         for chunk in claude_service.stream_chat_with_tools(
             history, system_prompt, user_id, tz_name, conversation_type,
-            thinking=thinking,
+            thinking=thinking, voice=voice,
         ):
             # chunk é no formato: "data: {\"text\": \"...\"}\n\n" ou "data: [DONE]\n\n"
             yield chunk
