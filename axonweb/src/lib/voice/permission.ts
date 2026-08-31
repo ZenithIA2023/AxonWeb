@@ -7,6 +7,8 @@
  * possibilidades em vez de fingir que sabe qual foi.
  */
 
+import { Capacitor } from "@capacitor/core";
+
 export type MicPermissionError =
   | "denied"
   | "not-found"
@@ -40,6 +42,32 @@ export function canRecordVoice(): boolean {
 }
 
 /**
+ * Um APK instalado ANTES do manifest ganhar `RECORD_AUDIO`/`MODIFY_AUDIO_SETTINGS`
+ * (Fase 4) não mostra diálogo nenhum: o `BridgeWebChromeClient` do Capacitor
+ * recusa o `getUserMedia` na hora, sem perguntar nada ao usuário — a mesma
+ * falha silenciosa que o `push.ts` já trata para o plugin de notificações.
+ *
+ * Sem plugin nativo aqui (a Fase 4 não criou nenhum) não dá para checar
+ * `Capacitor.isPluginAvailable`, mas a Permissions API entrega um sinal quase
+ * tão bom: se o sistema diz "prompt" (nunca decidiu nada) e ainda assim o
+ * `getUserMedia` rejeitou na mesma hora sem diálogo, quem recusou foi a
+ * WebView por falta da permissão no manifest, não o usuário.
+ */
+async function looksLikeOutdatedApk(): Promise<boolean> {
+  if (!Capacitor.isNativePlatform()) return false;
+  try {
+    const status = await navigator.permissions?.query({
+      name: "microphone" as PermissionName,
+    });
+    return status?.state === "prompt";
+  } catch {
+    // Nem toda WebView implementa a Permissions API para microfone — sem
+    // esse dado, não arrisca um diagnóstico que pode estar errado.
+    return false;
+  }
+}
+
+/**
  * Pede o microfone e devolve o stream, ou lança um erro com mensagem em
  * português pronta para mostrar ao usuário.
  */
@@ -53,6 +81,10 @@ export async function requestMicStream(): Promise<MediaStream> {
   try {
     return await navigator.mediaDevices.getUserMedia({ audio: true });
   } catch (err) {
-    throw new Error(MIC_ERROR_MESSAGES[classifyMicError(err)]);
+    const kind = classifyMicError(err);
+    if (kind === "denied" && (await looksLikeOutdatedApk())) {
+      throw new Error("APK desatualizado: reinstale a versão mais recente do Axon para gravar áudio.");
+    }
+    throw new Error(MIC_ERROR_MESSAGES[kind]);
   }
 }

@@ -7,8 +7,11 @@ android {
         applicationId "com.axon.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        // Bump da Fase 4 do plano de voz: o manifest ganhou RECORD_AUDIO e
+        // MODIFY_AUDIO_SETTINGS — sem incrementar aqui, quem já tinha o app
+        // instalado nunca recebe a atualização com essas permissões.
+        versionCode 2
+        versionName "1.1"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

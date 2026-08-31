@@ -47,4 +47,22 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!--
+        Voz do Axon (Fase 4). O Capacitor/WebView pede as duas juntas no
+        primeiro getUserMedia() — faltando MODIFY_AUDIO_SETTINGS, o Android
+        recusa em silêncio mesmo com RECORD_AUDIO presente, e o app parece
+        travado sem nenhum diagnóstico. Não precisa de plugin nativo: o
+        BridgeWebChromeClient do Capacitor já dispara o diálogo do sistema
+        sozinho no primeiro uso do microfone pela WebView.
+    -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
+    <!--
+        required="false": um aparelho sem microfone físico continua podendo
+        instalar o app (só a voz fica indisponível) — sem isso a Play Store
+        esconderia o Axon desses aparelhos por completo.
+    -->
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
 </manifest>
