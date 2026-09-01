@@ -54,6 +54,7 @@ VOICES: list[dict] = [
     {"id": "google:pt-BR-Chirp3-HD-Charon",     "provider": "google", "name": "Charon",  "gender": "masculina", "note": "Chirp3 HD"},
     {"id": "google:pt-BR-Chirp3-HD-Kore",       "provider": "google", "name": "Kore",    "gender": "feminina", "note": "Chirp3 HD"},
     {"id": "google:pt-BR-Chirp3-HD-Puck",       "provider": "google", "name": "Puck",    "gender": "masculina", "note": "Chirp3 HD"},
+    {"id": "google:pt-BR-Chirp3-HD-Fenrir",     "provider": "google", "name": "Fenrir",  "gender": "masculina", "note": "Chirp3 HD"},
     {"id": "google:pt-BR-Neural2-C",            "provider": "google", "name": "Neural2 C", "gender": "feminina", "note": "mais econômica"},
 
     # --- ElevenLabs (vozes multilíngues do catálogo padrão) -----------------
@@ -69,7 +70,7 @@ VOICES: list[dict] = [
     {"id": "openai:alloy",   "provider": "openai", "name": "Alloy",   "gender": "neutra",   "note": "equilibrada"},
 ]
 
-DEFAULT_VOICE = "google:pt-BR-Chirp3-HD-Aoede"
+DEFAULT_VOICE = "google:pt-BR-Chirp3-HD-Fenrir"
 
 _BY_ID = {v["id"]: v for v in VOICES}
 
