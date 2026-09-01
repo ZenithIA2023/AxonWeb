@@ -70,7 +70,7 @@ def _on_startup():
     except Exception:
         pass
 
-    _scheduler.add_job(planning_scheduler.run, "cron", minute="*")
+    _scheduler.add_job(planning_scheduler.run, "cron", minute="*/5")
     _scheduler.start()
     print("[scheduler] Planning scheduler iniciado.", flush=True)
 
