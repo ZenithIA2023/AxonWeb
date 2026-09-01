@@ -1,7 +1,7 @@
 """
 Scheduler de lembretes de planejamento.
 
-Roda a cada minuto via APScheduler e cria notificações de planejamento
+Roda a cada 5 minutos via APScheduler e cria notificações de planejamento
 para usuários cujo horário configurado foi atingido. Também dispara, no
 fuso local de cada usuário: o snapshot/carry-forward de fim de dia (00:10),
 os relatórios narrativos semanal (todo domingo 20h) e mensal (todo último
@@ -110,7 +110,7 @@ def _is_last_day_of_month(d) -> bool:
 
 
 def run() -> None:
-    """Job chamado pelo APScheduler a cada minuto."""
+    """Job chamado pelo APScheduler a cada 5 minutos."""
     now_utc = datetime.now(timezone.utc)
 
     try:
