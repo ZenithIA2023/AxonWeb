@@ -5,6 +5,7 @@ import remarkGfm from "remark-gfm";
 import {
   Archive,
   ArrowLeft,
+  AudioLines,
   Brain,
   Check,
   Edit3,
@@ -667,6 +668,16 @@ export function ChatConversationPanel({
                 ) : (
                   <VolumeX className="h-5 w-5" />
                 )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => navigate("/voz")}
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-soft bg-surface-muted text-secondary shadow-card backdrop-blur-2xl transition active:scale-[0.96]"
+                aria-label="Conversar por voz"
+                title="Conversar por voz"
+              >
+                <AudioLines className="h-5 w-5" />
               </button>
 
               <button

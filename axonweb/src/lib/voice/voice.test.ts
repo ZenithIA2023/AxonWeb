@@ -13,7 +13,7 @@
 
 import { Omega } from "lucide-react";
 import { sanitizeForSpeech } from "./sanitize";
-import { createSentenceQueue } from "./sentenceQueue";
+import { createSentenceQueue, splitSentences } from "./sentenceQueue";
 import type { SpeechEngine } from "./tts";
 
 let ok = 0;
@@ -143,6 +143,45 @@ async function main(): Promise<void> {
     "Quer que eu marque para as nove da manhã?",
     "Posso ajustar depois.",
   ]);
+
+
+  // ------------------------------------------------------------------------
+  // splitSentences — usado pela tela de voz para destacar a frase que está
+  // sendo dita. Ele PRECISA cortar igual à fila: se divergir, o destaque fica
+  // uma frase à frente ou atrás do áudio, que é o defeito mais visível que a
+  // página pode ter.
+  // ------------------------------------------------------------------------
+  console.log("\n— splitSentences —");
+
+  /** Confere que a tela e a fala chegam às MESMAS frases para um texto. */
+  async function mesmoCorte(nome: string, texto: string) {
+    const m = motorFalso();
+    const fila = createSentenceQueue(m.engine);
+    fila.push(texto);
+    fila.flush();
+    await tick();
+    eq(nome, splitSentences(texto), m.ditas);
+  }
+
+  await mesmoCorte(
+    "abreviação não vira duas frases",
+    "Marquei a consulta com o Dr. Silva às 9h de terça. Também avisei a Camila por e-mail.",
+  );
+  await mesmoCorte(
+    "decimal não vira duas frases",
+    "O orçamento fechou em R$ 1.500 este mês. Isso abre espaço para a viagem de julho.",
+  );
+  await mesmoCorte(
+    "fragmento curto junta com a próxima",
+    "Feito! Agendei a reunião para as 14h e movi a revisão para depois do almoço.",
+  );
+  await mesmoCorte(
+    "resposta de três frases",
+    "Movi a revisão do capítulo 2 para sábado às 10h. Sua sexta ficou com 4h30 de agenda. Quer que eu te lembre?",
+  );
+
+  eq("texto vazio não gera frase", splitSentences("   "), []);
+  eq("frase sem pontuação final ainda conta", splitSentences("Criei a tarefa"), ["Criei a tarefa"]);
 
   console.log(`\n${ok} passaram, ${falhas} falharam`);
   // Sai com código 1 quando algo falha, para servir em CI. `process` só existe

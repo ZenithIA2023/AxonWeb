@@ -82,6 +82,46 @@ function proximoCorte(buffer: string): number {
   return -1;
 }
 
+/**
+ * Divide um texto COMPLETO nas mesmas frases que a fila falaria.
+ *
+ * Existe para a tela de voz destacar a frase que está sendo dita: sem usar a
+ * mesma regra de corte, o destaque apontaria para a frase errada em qualquer
+ * resposta com "Dr. Silva", "R$ 1.500" ou um "Feito!" curto no começo — o
+ * `proximoCorte` protege esses casos e uma regex ingênua não.
+ *
+ * Diferente do streaming, aqui o texto já chegou inteiro: não há motivo para
+ * segurar o resto, então o que sobra no fim vira a última frase.
+ */
+export function splitSentences(texto: string): string[] {
+  const frases: string[] = [];
+  let buffer = texto;
+
+  for (;;) {
+    const corte = proximoCorte(buffer);
+    if (corte === -1) break;
+
+    const frase = buffer.slice(0, corte).trim();
+    // Mesma regra da fila: fragmento curto se junta ao próximo em vez de virar
+    // uma frase solta.
+    if (frase.length < MIN_CHARS && buffer.length < MAX_BUFFER) {
+      const proximo = proximoCorte(buffer.slice(corte));
+      if (proximo === -1) break;
+      const junto = buffer.slice(0, corte + proximo).trim();
+      frases.push(junto);
+      buffer = buffer.slice(corte + proximo);
+      continue;
+    }
+
+    frases.push(frase);
+    buffer = buffer.slice(corte);
+  }
+
+  const resto = buffer.trim();
+  if (resto) frases.push(resto);
+  return frases;
+}
+
 export interface SentenceQueue {
   /** Recebe cada delta de texto do stream. */
   push(chunk: string): void;

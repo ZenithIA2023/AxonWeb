@@ -21,6 +21,16 @@ function lerPreferencia(): boolean {
   }
 }
 
+export interface UseSpeechOptions {
+  /**
+   * Chamado quando cada frase COMEÇA a ser falada. A tela de voz usa isso para
+   * destacar a frase que está saindo agora; o chat de texto não passa nada.
+   * A frase chega já sanitizada (sem markdown, "14:30" virou "14 e 30"), então
+   * não bate caractere a caractere com o texto exibido.
+   */
+  onSentenceStart?: (frase: string) => void;
+}
+
 export interface UseSpeech {
   /** O usuário quer ouvir as respostas? */
   enabled: boolean;
@@ -45,7 +55,7 @@ export interface UseSpeech {
   warmup: () => void;
 }
 
-export function useSpeech(): UseSpeech {
+export function useSpeech(options: UseSpeechOptions = {}): UseSpeech {
   const [enabled, setEnabledState] = useState<boolean>(lerPreferencia);
   const [speaking, setSpeaking] = useState(false);
   const [available, setAvailable] = useState(true);
@@ -55,6 +65,10 @@ export function useSpeech(): UseSpeech {
   // velho — o ref mantém sempre o atual.
   const enabledRef = useRef(enabled);
   enabledRef.current = enabled;
+  // Mesmo motivo: `begin` é memoizado uma vez e chamaria sempre o callback da
+  // primeira renderização.
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
 
   const stop = useCallback(() => {
     queueRef.current?.cancel();
@@ -99,6 +113,7 @@ export function useSpeech(): UseSpeech {
     setSpeaking(true);
     queueRef.current = createSentenceQueue(engine, {
       onIdle: () => setSpeaking(false),
+      onSentenceStart: (frase) => optionsRef.current.onSentenceStart?.(frase),
     });
   }, []);
 

@@ -28,6 +28,7 @@ import NotificationToastProvider from "../components/notifications/NotificationT
 import Dashboard from "../pages/Dashboard";
 import Chat from "../pages/Chat";
 import ChatConversation from "../pages/ChatConversation";
+import VoiceChat from "../pages/VoiceChat";
 import Planning from "../pages/Planning";
 import Insights from "../pages/Insights";
 import { RoutineDetailPage } from "../pages/Routines";
@@ -90,6 +91,7 @@ export default function App() {
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/chat" element={<Chat />} />
         <Route path="/chat/:chatId" element={<ChatConversation />} />
+        <Route path="/voz" element={<VoiceChat />} />
         <Route path="/planning" element={<Planning initialView="agenda" />} />
         <Route path="/insights" element={<Insights />} />
         <Route path="/rotinas" element={<Planning initialView="rotinas" />} />
