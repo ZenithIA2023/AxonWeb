@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ElementType } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import {
+  AudioLines,
   BarChart3,
   CalendarDays,
   Focus,
@@ -61,6 +62,12 @@ const mainItems: NavItem[] = [
     description: "Converse com o Axon",
     icon: MessageCircle,
     path: "/chat",
+  },
+  {
+    label: "Voz",
+    description: "Converse falando com o Axon",
+    icon: AudioLines,
+    path: "/voz",
   },
   {
     label: "Planejamento",

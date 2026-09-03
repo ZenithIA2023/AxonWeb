@@ -307,6 +307,67 @@ body {
 }
 
 /* ==========================================================================
+   PÁGINA DE VOZ
+   Animações contínuas da tela "Falar com o Axon". Ficam aqui, e não inline,
+   porque são @keyframes — style inline não define keyframes, só os consome.
+   ========================================================================== */
+
+/* A aurora do fundo respira devagar. Em vídeo, a tela nunca fica parada mesmo
+   quando ninguém toca nela. */
+@keyframes voiceDrift {
+  0% {
+    transform: translateY(6%) scale(1);
+  }
+
+  100% {
+    transform: translateY(-2%) scale(1.08);
+  }
+}
+
+.voice-aurora {
+  animation: voiceDrift 18s ease-in-out infinite alternate;
+}
+
+/* Anel do microfone: nasce colado no botão e se expande até sumir, repetindo.
+   É o sinal de que o microfone está aberto AGORA. */
+@keyframes voiceMicRing {
+  0% {
+    transform: scale(0.94);
+    opacity: 0.9;
+  }
+
+  100% {
+    transform: scale(1.32);
+    opacity: 0;
+  }
+}
+
+.voice-mic-ring {
+  border: 2px solid rgba(232, 121, 249, 0.5);
+  animation: voiceMicRing 1.5s ease-out infinite;
+}
+
+/* Ponto vermelho do selo "gravando". */
+@keyframes voiceBlink {
+  50% {
+    opacity: 0.2;
+  }
+}
+
+.voice-blink {
+  animation: voiceBlink 1.1s ease-in-out infinite;
+}
+
+/* Quem pediu menos movimento não quer nada disso pulsando na tela inteira. */
+@media (prefers-reduced-motion: reduce) {
+  .voice-aurora,
+  .voice-mic-ring,
+  .voice-blink {
+    animation: none !important;
+  }
+}
+
+/* ==========================================================================
    CARD DA LINHA DO TEMPO (PLANEJAMENTO)
    ========================================================================== */
 
@@ -414,4 +475,24 @@ body {
 .is-native html,
 .is-native body {
   overscroll-behavior: none;
+}
+
+/* Barra de rolagem da transcrição de voz: visível o bastante para revelar que
+   há histórico acima, discreta o bastante para não brigar com a tela escura. */
+.voice-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+
+.voice-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+
+.voice-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.voice-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
 }
